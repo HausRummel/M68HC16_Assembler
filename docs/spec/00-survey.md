@@ -102,9 +102,24 @@ Opcode-family structure observed across the matrix:
 The probe TEMPLATE is only a stimulus; the true mode is whatever the opcode
 encodes (a non-branch op given `*` assembles as extended, etc.).
 
-**Next ISA step:** classify each matrix row by opcode/prebyte into named
-addressing modes, collapse address-only duplicates, and encode the result as the
-Rust `isa` tables (`crates/m68hc16-asm/src/isa/`).
+### Canonical ISA tables (generated)
+
+`Build-IsaTable.ps1` *differentially* probes each mnemonic (two operand values per
+mode) to split the constant opcode prefix from the operand bytes, then collapses
+to canonical modes: 8/16/20-bit disambiguated by total length; PC-relative long
+branches detected when the emitted operand ≠ the fed address; inherent ops by the
+bare form; `pshm`/`pulm` register lists separated from E-indexing. Output:
+[`isa-table.tsv`](isa-table.tsv) — 707 `(mnemonic, mode, prefix, operand_len)`
+entries across 216 mnemonics.
+
+`Generate-IsaRust.ps1` emits this as `crates/m68hc16-asm/src/isa/table.rs`
+(`pub static INSTRUCTIONS: &[InsnDef]`). Hand-written `isa/mod.rs` defines `Mode`,
+`IdxReg`, `ModeEntry`, `InsnDef`, and `lookup()`, with unit tests asserting key
+encodings against the oracle bytes. `cargo test -p m68hc16-asm` is green.
+
+**Next step:** the encoder (`encoder.rs`) — parse a source line, pick the mode
+from the operand shape, emit `prefix` + operand bytes per mode; then wire
+`assemble()` end-to-end and validate byte-for-byte against the oracle.
 
 ## Output formats
 
