@@ -1,0 +1,16 @@
+[package]
+name = "m68hc16-asm-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Command-line interface for the M68HC16 assembler"
+
+[[bin]]
+name = "m68hc16-asm"
+path = "src/main.rs"
+
+[dependencies]
+m68hc16-asm.workspace = true
+clap.workspace = true
+anyhow.workspace = true

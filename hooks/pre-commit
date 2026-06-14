@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+# Pre-commit guard: refuses to let JTEC content or paths sneak into a commit.
+#
+# Install locally with:
+#   cp hooks/pre-commit .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit
+#
+# The blocklist is intentionally simple; extend it as needed. The hook checks
+# both staged file paths and staged blob contents.
+
+set -euo pipefail
+
+# Tokens that must never appear in committed file paths or contents.
+BLOCKED_TOKENS=(
+    "jtec"
+    "JTEC"
+)
+
+# Paths that must never be committed at all.
+BLOCKED_PATHS=(
+    "tests/fixtures/private/"
+    "crates/m68hc16-asm/tests/fixtures/private/"
+    "private_path.toml"
+)
+
+# Files that legitimately contain the blocked tokens because they define
+# the guard itself. Exact-path match, not prefix.
+EXEMPT_PATHS=(
+    ".gitignore"
+    "hooks/pre-commit"
+)
+
+is_exempt() {
+    local p="$1"
+    for ex in "${EXEMPT_PATHS[@]}"; do
+        if [[ "$p" == "$ex" ]]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+fail() {
+    echo "pre-commit: $*" >&2
+    echo "pre-commit: refusing to commit. See hooks/pre-commit for details." >&2
+    exit 1
+}
+
+# Collect staged files (added, copied, modified, renamed).
+mapfile -t staged < <(git diff --cached --name-only --diff-filter=ACMR)
+
+[[ ${#staged[@]} -eq 0 ]] && exit 0
+
+for path in "${staged[@]}"; do
+    for bad in "${BLOCKED_PATHS[@]}"; do
+        if [[ "$path" == "$bad"* ]]; then
+            fail "blocked path staged: $path"
+        fi
+    done
+    if ! is_exempt "$path"; then
+        for tok in "${BLOCKED_TOKENS[@]}"; do
+            if [[ "$path" == *"$tok"* ]]; then
+                fail "blocked token \"$tok\" in path: $path"
+            fi
+        done
+    fi
+done
+
+# Check staged blob contents (skip exempt files and binary blobs).
+for path in "${staged[@]}"; do
+    if is_exempt "$path"; then
+        continue
+    fi
+    if ! git diff --cached --numstat -- "$path" | awk '{print $1, $2}' | grep -q '^-'; then
+        for tok in "${BLOCKED_TOKENS[@]}"; do
+            if git show ":$path" 2>/dev/null | grep -q -- "$tok"; then
+                fail "blocked token \"$tok\" found in staged content of: $path"
+            fi
+        done
+    fi
+done
+
+exit 0

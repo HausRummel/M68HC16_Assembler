@@ -1,0 +1,21 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/m68hc16-asm",
+    "crates/m68hc16-asm-cli",
+    "crates/m68hc16-asm-gui",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/hausrummel/m68hc16_assembler"
+
+[workspace.dependencies]
+m68hc16-asm = { path = "crates/m68hc16-asm" }
+anyhow = "1"
+thiserror = "1"
+clap = { version = "4", features = ["derive"] }
+eframe = { version = "0.28", default-features = false, features = ["default_fonts", "glow"] }
+rfd = "0.14"

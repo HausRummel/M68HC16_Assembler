@@ -1,0 +1,22 @@
+# --- Rust ---
+/target
+**/*.rs.bk
+Cargo.lock.bak
+
+# --- JTEC isolation (do NOT remove) ---
+# Private fixtures and any local-only config that points at them.
+tests/fixtures/private/
+private_path.toml
+*.private.*
+
+# Any path or filename containing "jtec" (case-insensitive). Belt-and-braces
+# alongside the pre-commit hook in hooks/pre-commit.
+**/[Jj][Tt][Ee][Cc]*
+**/*[Jj][Tt][Ee][Cc]*
+
+# --- Editor / OS noise ---
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
