@@ -80,9 +80,31 @@ in [`sample-listing.txt`](sample-listing.txt). Observed opcode/prebyte structure
 The prebyte is selected by operand class (immediate width / mode), not by the
 mnemonic alone — this is the core dispatch the encoder must implement.
 
-**Next ISA step:** drive `Get-MasmEncoding.ps1` over a generated matrix of every
-used mnemonic × every legal addressing mode to produce the complete encoding
-table, then encode that as the Rust `isa` tables.
+### Full ISA matrix (generated)
+
+`Build-IsaMatrix.ps1` probes every instruction mnemonic × a battery of operand
+templates through the oracle and records what assembles. Result:
+[`isa-probe.tsv`](isa-probe.tsv) — **856 encodings across 215/215 instruction
+mnemonics** (corpus-used MASM-table ops minus directives). Each row is
+`mnemonic | mode(s) | bytes | nbytes` of authoritative MASM output.
+
+Opcode-family structure observed across the matrix:
+- 8-bit accumulators A/B and 16-bit D/E pick the **index register by opcode
+  nibble**: X=`4x`, Y=`5x`, Z=`6x` for 8-bit-acc; `8x/9x/Ax` for 16-bit.
+- **Prebyte** by operand class: `17` = 8-bit-acc extended / indexed-16; `37` =
+  16-bit-D / immediate-16 / long-branch / inherent-ALU; `27` = E-offset indexed
+  and many 1-byte inherents; no prebyte for immediate-8, 8-bit relative, indexed-8.
+- `jmp`/`jsr` carry a **20-bit** address (bank nibble in byte 2: `7A 01 23 45`).
+- Bit ops: `bset`=`39`, `bclr`=`38`, `brset`=`3B`, `brclr`=`3A` (`addr,#mask[,rel16]`).
+- Register-list: `pshm`=`34`, `pulm`=`35` (2nd byte = register bitmask).
+- Memory-move: `movb`=`37 FE`/`30`/`32`, `movw`=`37 FF`/`31`; `rmac`=`FB`.
+
+The probe TEMPLATE is only a stimulus; the true mode is whatever the opcode
+encodes (a non-branch op given `*` assembles as extended, etc.).
+
+**Next ISA step:** classify each matrix row by opcode/prebyte into named
+addressing modes, collapse address-only duplicates, and encode the result as the
+Rust `isa` tables (`crates/m68hc16-asm/src/isa/`).
 
 ## Output formats
 

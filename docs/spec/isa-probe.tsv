@@ -1,0 +1,857 @@
+﻿mnemonic	modes	bytes	nbytes
+adca	dp,dir	17 73 00 08	4
+adca	eind	27 43	2
+adca	ext	17 73 12 34	4
+adca	ext20	17 73 23 45	4
+adca	imm8	73 05	2
+adca	ix16	17 43 12 34	4
+adca	ix8	43 08	2
+adca	iy8	53 08	2
+adca	iz8	63 08	2
+adca	rel	17 73 20 20	4
+adcb	dp,dir	17 F3 00 08	4
+adcb	eind	27 C3	2
+adcb	ext	17 F3 12 34	4
+adcb	ext20	17 F3 23 45	4
+adcb	imm8	F3 05	2
+adcb	ix16	17 C3 12 34	4
+adcb	ix8	C3 08	2
+adcb	iy8	D3 08	2
+adcb	iz8	E3 08	2
+adcb	rel	17 F3 20 42	4
+adcd	dp,dir	37 F3 00 08	4
+adcd	eind	27 83	2
+adcd	ext	37 F3 12 34	4
+adcd	ext20	37 F3 23 45	4
+adcd	imm16	37 B3 12 34	4
+adcd	imm8	37 B3 00 05	4
+adcd	ix16	37 C3 12 34	4
+adcd	ix8	83 08	2
+adcd	iy8	93 08	2
+adcd	iz8	A3 08	2
+adcd	rel	37 F3 20 6A	4
+adce	dp,dir	37 73 00 08	4
+adce	ext	37 73 12 34	4
+adce	ext20	37 73 23 45	4
+adce	imm16	37 33 12 34	4
+adce	imm8	37 33 00 05	4
+adce	ix16	37 43 12 34	4
+adce	ix8	37 43 00 08	4
+adce	iy8	37 53 00 08	4
+adce	iz8	37 63 00 08	4
+adce	rel	37 73 20 96	4
+adda	dp,dir	17 71 00 08	4
+adda	eind	27 41	2
+adda	ext	17 71 12 34	4
+adda	ext20	17 71 23 45	4
+adda	imm8	71 05	2
+adda	ix16	17 41 12 34	4
+adda	ix8	41 08	2
+adda	iy8	51 08	2
+adda	iz8	61 08	2
+adda	rel	17 71 20 B8	4
+addb	dp,dir	17 F1 00 08	4
+addb	eind	27 C1	2
+addb	ext	17 F1 12 34	4
+addb	ext20	17 F1 23 45	4
+addb	imm8	F1 05	2
+addb	ix16	17 C1 12 34	4
+addb	ix8	C1 08	2
+addb	iy8	D1 08	2
+addb	iz8	E1 08	2
+addb	rel	17 F1 20 DA	4
+addd	dp,dir	37 F1 00 08	4
+addd	eind	27 81	2
+addd	ext	37 F1 12 34	4
+addd	ext20	37 F1 23 45	4
+addd	imm16	37 B1 12 34	4
+addd	imm8	FC 05	2
+addd	ix16	37 C1 12 34	4
+addd	ix8	81 08	2
+addd	iy8	91 08	2
+addd	iz8	A1 08	2
+addd	rel	37 F1 21 00	4
+adde	dp,dir	37 71 00 08	4
+adde	ext	37 71 12 34	4
+adde	ext20	37 71 23 45	4
+adde	imm16	37 31 12 34	4
+adde	imm8	7C 05	2
+adde	ix16	37 41 12 34	4
+adde	ix8	37 41 00 08	4
+adde	iy8	37 51 00 08	4
+adde	iz8	37 61 00 08	4
+adde	rel	37 71 21 2A	4
+ade	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	27 78	2
+adx	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	37 CD	2
+ady	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	37 DD	2
+adz	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	37 ED	2
+aex	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	37 4D	2
+aey	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	37 5D	2
+aez	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	37 6D	2
+aix	imm16	37 3C 12 34	4
+aix	imm8	3C 05	2
+aiy	imm16	37 3D 12 34	4
+aiy	imm8	3D 05	2
+aiz	imm16	37 3E 12 34	4
+aiz	imm8	3E 05	2
+anda	dp,dir	17 76 00 08	4
+anda	eind	27 46	2
+anda	ext	17 76 12 34	4
+anda	ext20	17 76 23 45	4
+anda	imm8	76 05	2
+anda	ix16	17 46 12 34	4
+anda	ix8	46 08	2
+anda	iy8	56 08	2
+anda	iz8	66 08	2
+anda	rel	17 76 22 3E	4
+andb	dp,dir	17 F6 00 08	4
+andb	eind	27 C6	2
+andb	ext	17 F6 12 34	4
+andb	ext20	17 F6 23 45	4
+andb	imm8	F6 05	2
+andb	ix16	17 C6 12 34	4
+andb	ix8	C6 08	2
+andb	iy8	D6 08	2
+andb	iz8	E6 08	2
+andb	rel	17 F6 22 60	4
+andd	dp,dir	37 F6 00 08	4
+andd	eind	27 86	2
+andd	ext	37 F6 12 34	4
+andd	ext20	37 F6 23 45	4
+andd	imm16	37 B6 12 34	4
+andd	imm8	37 B6 00 05	4
+andd	ix16	37 C6 12 34	4
+andd	ix8	86 08	2
+andd	iy8	96 08	2
+andd	iz8	A6 08	2
+andd	rel	37 F6 22 88	4
+ande	dp,dir	37 76 00 08	4
+ande	ext	37 76 12 34	4
+ande	ext20	37 76 23 45	4
+ande	imm16	37 36 12 34	4
+ande	imm8	37 36 00 05	4
+ande	ix16	37 46 12 34	4
+ande	ix8	37 46 00 08	4
+ande	iy8	37 56 00 08	4
+ande	iz8	37 66 00 08	4
+ande	rel	37 76 22 B4	4
+andp	imm16	37 3A 12 34	4
+andp	imm8	37 3A 00 05	4
+asl	dp,dir	17 34 00 08	4
+asl	ext	17 34 12 34	4
+asl	ext20	17 34 23 45	4
+asl	ix16	17 04 12 34	4
+asl	ix8	04 08	2
+asl	iy8	14 08	2
+asl	iz8	24 08	2
+asl	rel	17 34 22 DA	4
+asla	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	37 04	2
+aslb	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	37 14	2
+asld	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	27 F4	2
+asle	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	27 74	2
+aslm	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	27 B6	2
+aslw	dp,dir	27 34 00 08	4
+aslw	ext	27 34 12 34	4
+aslw	ext20	27 34 23 45	4
+aslw	ix16	27 04 12 34	4
+aslw	ix8	27 04 00 08	4
+aslw	iy8	27 14 00 08	4
+aslw	iz8	27 24 00 08	4
+aslw	rel	27 34 23 9E	4
+asra	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	37 0D	2
+asrb	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	37 1D	2
+asrd	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	27 FD	2
+asre	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	27 7D	2
+bcc	rel	B4 FA	2
+bclr	bit	38 01 00 08	4
+bcs	rel	B5 FA	2
+beq	rel	B7 FA	2
+bge	rel	BC FA	2
+bgt	rel	BE FA	2
+bhi	rel	B2 FA	2
+bita	dp,dir	17 79 00 08	4
+bita	eind	27 49	2
+bita	ext	17 79 12 34	4
+bita	ext20	17 79 23 45	4
+bita	imm8	79 05	2
+bita	ix16	17 49 12 34	4
+bita	ix8	49 08	2
+bita	iy8	59 08	2
+bita	iz8	69 08	2
+bita	rel	17 79 24 54	4
+bitb	dp,dir	17 F9 00 08	4
+bitb	eind	27 C9	2
+bitb	ext	17 F9 12 34	4
+bitb	ext20	17 F9 23 45	4
+bitb	imm8	F9 05	2
+bitb	ix16	17 C9 12 34	4
+bitb	ix8	C9 08	2
+bitb	iy8	D9 08	2
+bitb	iz8	E9 08	2
+bitb	rel	17 F9 24 76	4
+ble	rel	BF FA	2
+bls	rel	B3 FA	2
+blt	rel	BD FA	2
+bmi	rel	BB FA	2
+bne	rel	B6 FA	2
+bpl	rel	BA FA	2
+bra	rel	B0 FA	2
+brclr	bitbr	3A 01 00 08 FF FA	6
+brset	bitbr	3B 01 00 08 FF FA	6
+bset	bit	39 01 00 08	4
+bsr	rel	36 FA	2
+bvc	rel	B8 FA	2
+bvs	rel	B9 FA	2
+cba	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	37 1B	2
+clr	dp,dir	17 35 00 08	4
+clr	ext	17 35 12 34	4
+clr	ext20	17 35 23 45	4
+clr	ix16	17 05 12 34	4
+clr	ix8	05 08	2
+clr	iy8	15 08	2
+clr	iz8	25 08	2
+clr	rel	17 35 24 DC	4
+clra	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	37 05	2
+clrb	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	37 15	2
+clrd	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	27 F5	2
+clre	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	27 75	2
+clrm	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	27 B7	2
+clrw	dp,dir	27 35 00 08	4
+clrw	ext	27 35 12 34	4
+clrw	ext20	27 35 23 45	4
+clrw	ix16	27 05 12 34	4
+clrw	ix8	27 05 00 08	4
+clrw	iy8	27 15 00 08	4
+clrw	iz8	27 25 00 08	4
+clrw	rel	27 35 25 A0	4
+cmpa	dp,dir	17 78 00 08	4
+cmpa	eind	27 48	2
+cmpa	ext	17 78 12 34	4
+cmpa	ext20	17 78 23 45	4
+cmpa	imm8	78 05	2
+cmpa	ix16	17 48 12 34	4
+cmpa	ix8	48 08	2
+cmpa	iy8	58 08	2
+cmpa	iz8	68 08	2
+cmpa	rel	17 78 25 C2	4
+cmpb	dp,dir	17 F8 00 08	4
+cmpb	eind	27 C8	2
+cmpb	ext	17 F8 12 34	4
+cmpb	ext20	17 F8 23 45	4
+cmpb	imm8	F8 05	2
+cmpb	ix16	17 C8 12 34	4
+cmpb	ix8	C8 08	2
+cmpb	iy8	D8 08	2
+cmpb	iz8	E8 08	2
+cmpb	rel	17 F8 25 E4	4
+cmpx	dp,dir	17 7C 00 08	4
+cmpx	ext	17 7C 12 34	4
+cmpx	ext20	17 7C 23 45	4
+cmpx	imm16	37 7C 12 34	4
+cmpx	imm8	37 7C 00 05	4
+cmpx	ix16	17 4C 12 34	4
+cmpx	ix8	4C 08	2
+cmpx	iy8	5C 08	2
+cmpx	iz8	6C 08	2
+cmpx	rel	17 7C 26 0A	4
+cmpy	dp,dir	17 7D 00 08	4
+cmpy	ext	17 7D 12 34	4
+cmpy	ext20	17 7D 23 45	4
+cmpy	imm16	37 7D 12 34	4
+cmpy	imm8	37 7D 00 05	4
+cmpy	ix16	17 4D 12 34	4
+cmpy	ix8	4D 08	2
+cmpy	iy8	5D 08	2
+cmpy	iz8	6D 08	2
+cmpy	rel	17 7D 26 30	4
+com	dp,dir	17 30 00 08	4
+com	ext	17 30 12 34	4
+com	ext20	17 30 23 45	4
+com	ix16	17 00 12 34	4
+com	ix8	00 08	2
+com	iy8	10 08	2
+com	iz8	20 08	2
+com	rel	17 30 26 4E	4
+coma	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	37 00	2
+comb	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	37 10	2
+comd	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	27 F0	2
+come	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	27 70	2
+cpd	dp,dir	37 F8 00 08	4
+cpd	eind	27 88	2
+cpd	ext	37 F8 12 34	4
+cpd	ext20	37 F8 23 45	4
+cpd	imm16	37 B8 12 34	4
+cpd	imm8	37 B8 00 05	4
+cpd	ix16	37 C8 12 34	4
+cpd	ix8	88 08	2
+cpd	iy8	98 08	2
+cpd	iz8	A8 08	2
+cpd	rel	37 F8 26 F6	4
+cpe	dp,dir	37 78 00 08	4
+cpe	ext	37 78 12 34	4
+cpe	ext20	37 78 23 45	4
+cpe	imm16	37 38 12 34	4
+cpe	imm8	37 38 00 05	4
+cpe	ix16	37 48 12 34	4
+cpe	ix8	37 48 00 08	4
+cpe	iy8	37 58 00 08	4
+cpe	iz8	37 68 00 08	4
+cpe	rel	37 78 27 22	4
+cpx	dp,dir	17 7C 00 08	4
+cpx	ext	17 7C 12 34	4
+cpx	ext20	17 7C 23 45	4
+cpx	imm16	37 7C 12 34	4
+cpx	imm8	37 7C 00 05	4
+cpx	ix16	17 4C 12 34	4
+cpx	ix8	4C 08	2
+cpx	iy8	5C 08	2
+cpx	iz8	6C 08	2
+cpx	rel	17 7C 27 48	4
+cpy	dp,dir	17 7D 00 08	4
+cpy	ext	17 7D 12 34	4
+cpy	ext20	17 7D 23 45	4
+cpy	imm16	37 7D 12 34	4
+cpy	imm8	37 7D 00 05	4
+cpy	ix16	17 4D 12 34	4
+cpy	ix8	4D 08	2
+cpy	iy8	5D 08	2
+cpy	iz8	6D 08	2
+cpy	rel	17 7D 27 6E	4
+dec	dp,dir	17 31 00 08	4
+dec	ext	17 31 12 34	4
+dec	ext20	17 31 23 45	4
+dec	ix16	17 01 12 34	4
+dec	ix8	01 08	2
+dec	iy8	11 08	2
+dec	iz8	21 08	2
+dec	rel	17 31 27 8C	4
+deca	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	37 01	2
+decb	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	37 11	2
+decw	dp,dir	27 31 00 08	4
+decw	ext	27 31 12 34	4
+decw	ext20	27 31 23 45	4
+decw	ix16	27 01 12 34	4
+decw	ix8	27 01 00 08	4
+decw	iy8	27 11 00 08	4
+decw	iz8	27 21 00 08	4
+decw	rel	27 31 27 F0	4
+dex	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	3C FF	2
+ediv	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	37 28	2
+edivs	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	37 29	2
+emul	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	37 25	2
+emuls	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	37 26	2
+eora	dp,dir	17 74 00 08	4
+eora	eind	27 44	2
+eora	ext	17 74 12 34	4
+eora	ext20	17 74 23 45	4
+eora	imm8	74 05	2
+eora	ix16	17 44 12 34	4
+eora	ix8	44 08	2
+eora	iy8	54 08	2
+eora	iz8	64 08	2
+eora	rel	17 74 28 B2	4
+eorb	dp,dir	17 F4 00 08	4
+eorb	eind	27 C4	2
+eorb	ext	17 F4 12 34	4
+eorb	ext20	17 F4 23 45	4
+eorb	imm8	F4 05	2
+eorb	ix16	17 C4 12 34	4
+eorb	ix8	C4 08	2
+eorb	iy8	D4 08	2
+eorb	iz8	E4 08	2
+eorb	rel	17 F4 28 D4	4
+eord	dp,dir	37 F4 00 08	4
+eord	eind	27 84	2
+eord	ext	37 F4 12 34	4
+eord	ext20	37 F4 23 45	4
+eord	imm16	37 B4 12 34	4
+eord	imm8	37 B4 00 05	4
+eord	ix16	37 C4 12 34	4
+eord	ix8	84 08	2
+eord	iy8	94 08	2
+eord	iz8	A4 08	2
+eord	rel	37 F4 28 FC	4
+eore	dp,dir	37 74 00 08	4
+eore	ext	37 74 12 34	4
+eore	ext20	37 74 23 45	4
+eore	imm16	37 34 12 34	4
+eore	imm8	37 34 00 05	4
+eore	ix16	37 44 12 34	4
+eore	ix8	37 44 00 08	4
+eore	iy8	37 54 00 08	4
+eore	iz8	37 64 00 08	4
+eore	rel	37 74 29 28	4
+fdiv	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	37 2B	2
+fmuls	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	37 27	2
+idiv	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	37 2A	2
+inc	dp,dir	17 33 00 08	4
+inc	ext	17 33 12 34	4
+inc	ext20	17 33 23 45	4
+inc	ix16	17 03 12 34	4
+inc	ix8	03 08	2
+inc	iy8	13 08	2
+inc	iz8	23 08	2
+inc	rel	17 33 29 A6	4
+inca	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	37 03	2
+incb	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	37 13	2
+incw	dp,dir	27 33 00 08	4
+incw	ext	27 33 12 34	4
+incw	ext20	27 33 23 45	4
+incw	ix16	27 03 12 34	4
+incw	ix8	27 03 00 08	4
+incw	iy8	27 13 00 08	4
+incw	iz8	27 23 00 08	4
+incw	rel	27 33 2A 0A	4
+inx	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	3C 01	2
+jmp	dp,dir	7A 00 00 08	4
+jmp	ext	7A 00 12 34	4
+jmp	ext20	7A 01 23 45	4
+jmp	ix16	4B 00 12 34	4
+jmp	ix8	4B 00 00 08	4
+jmp	iy8	5B 00 00 08	4
+jmp	iz8	6B 00 00 08	4
+jmp	rel	7A 00 2A 4E	4
+jsr	dp,dir	FA 00 00 08	4
+jsr	ext	FA 00 12 34	4
+jsr	ext20	FA 01 23 45	4
+jsr	ix16	89 00 12 34	4
+jsr	ix8	89 00 00 08	4
+jsr	iy8	99 00 00 08	4
+jsr	iz8	A9 00 00 08	4
+jsr	rel	FA 00 2A 72	4
+lbcc	dir	37 84 D5 88	4
+lbcc	dp	37 84 D5 8C	4
+lbcc	ext	37 84 E7 B0	4
+lbcc	ext20	37 84 F8 BD	4
+lbcc	rel	37 84 FF FA	4
+lbcs	dir	37 85 D5 5C	4
+lbcs	dp	37 85 D5 60	4
+lbcs	ext	37 85 E7 84	4
+lbcs	ext20	37 85 F8 91	4
+lbcs	rel	37 85 FF FA	4
+lbeq	dir	37 87 D5 30	4
+lbeq	dp	37 87 D5 34	4
+lbeq	ext	37 87 E7 58	4
+lbeq	ext20	37 87 F8 65	4
+lbeq	rel	37 87 FF FA	4
+lbge	dir	37 8C D5 04	4
+lbge	dp	37 8C D5 08	4
+lbge	ext	37 8C E7 2C	4
+lbge	ext20	37 8C F8 39	4
+lbge	rel	37 8C FF FA	4
+lbgt	dir	37 8E D4 D8	4
+lbgt	dp	37 8E D4 DC	4
+lbgt	ext	37 8E E7 00	4
+lbgt	ext20	37 8E F8 0D	4
+lbgt	rel	37 8E FF FA	4
+lbhi	dir	37 82 D4 AC	4
+lbhi	dp	37 82 D4 B0	4
+lbhi	ext	37 82 E6 D4	4
+lbhi	ext20	37 82 F7 E1	4
+lbhi	rel	37 82 FF FA	4
+lble	dir	37 8F D4 80	4
+lble	dp	37 8F D4 84	4
+lble	ext	37 8F E6 A8	4
+lble	ext20	37 8F F7 B5	4
+lble	rel	37 8F FF FA	4
+lbls	dir	37 83 D4 54	4
+lbls	dp	37 83 D4 58	4
+lbls	ext	37 83 E6 7C	4
+lbls	ext20	37 83 F7 89	4
+lbls	rel	37 83 FF FA	4
+lblt	dir	37 8D D4 28	4
+lblt	dp	37 8D D4 2C	4
+lblt	ext	37 8D E6 50	4
+lblt	ext20	37 8D F7 5D	4
+lblt	rel	37 8D FF FA	4
+lbmi	dir	37 8B D3 FC	4
+lbmi	dp	37 8B D4 00	4
+lbmi	ext	37 8B E6 24	4
+lbmi	ext20	37 8B F7 31	4
+lbmi	rel	37 8B FF FA	4
+lbne	dir	37 86 D3 D0	4
+lbne	dp	37 86 D3 D4	4
+lbne	ext	37 86 E5 F8	4
+lbne	ext20	37 86 F7 05	4
+lbne	rel	37 86 FF FA	4
+lbpl	dir	37 8A D3 A4	4
+lbpl	dp	37 8A D3 A8	4
+lbpl	ext	37 8A E5 CC	4
+lbpl	ext20	37 8A F6 D9	4
+lbpl	rel	37 8A FF FA	4
+lbra	dir	37 80 D3 78	4
+lbra	dp	37 80 D3 7C	4
+lbra	ext	37 80 E5 A0	4
+lbra	ext20	37 80 F6 AD	4
+lbra	rel	37 80 FF FA	4
+lbsr	dir	27 F9 D3 4C	4
+lbsr	dp	27 F9 D3 50	4
+lbsr	ext	27 F9 E5 74	4
+lbsr	ext20	27 F9 F6 81	4
+lbsr	rel	27 F9 FF FA	4
+ldaa	dp,dir	17 75 00 08	4
+ldaa	eind	27 45	2
+ldaa	ext	17 75 12 34	4
+ldaa	ext20	17 75 23 45	4
+ldaa	imm8	75 05	2
+ldaa	ix16	17 45 12 34	4
+ldaa	ix8	45 08	2
+ldaa	iy8	55 08	2
+ldaa	iz8	65 08	2
+ldaa	rel	17 75 2C FC	4
+ldab	dp,dir	17 F5 00 08	4
+ldab	eind	27 C5	2
+ldab	ext	17 F5 12 34	4
+ldab	ext20	17 F5 23 45	4
+ldab	imm8	F5 05	2
+ldab	ix16	17 C5 12 34	4
+ldab	ix8	C5 08	2
+ldab	iy8	D5 08	2
+ldab	iz8	E5 08	2
+ldab	rel	17 F5 2D 1E	4
+ldd	dp,dir	37 F5 00 08	4
+ldd	eind	27 85	2
+ldd	ext	37 F5 12 34	4
+ldd	ext20	37 F5 23 45	4
+ldd	imm16	37 B5 12 34	4
+ldd	imm8	37 B5 00 05	4
+ldd	ix16	37 C5 12 34	4
+ldd	ix8	85 08	2
+ldd	iy8	95 08	2
+ldd	iz8	A5 08	2
+ldd	rel	37 F5 2D 46	4
+lde	dp,dir	37 75 00 08	4
+lde	ext	37 75 12 34	4
+lde	ext20	37 75 23 45	4
+lde	imm16	37 35 12 34	4
+lde	imm8	37 35 00 05	4
+lde	ix16	37 45 12 34	4
+lde	ix8	37 45 00 08	4
+lde	iy8	37 55 00 08	4
+lde	iz8	37 65 00 08	4
+lde	rel	37 75 2D 72	4
+lded	dp,dir	27 71 00 08	4
+lded	ext	27 71 12 34	4
+lded	ext20	27 71 23 45	4
+lded	rel	27 71 2D 96	4
+ldhi	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	27 B0	2
+lds	dp,dir	17 FF 00 08	4
+lds	ext	17 FF 12 34	4
+lds	ext20	17 FF 23 45	4
+lds	imm16	37 BF 12 34	4
+lds	imm8	37 BF 00 05	4
+lds	ix16	17 CF 12 34	4
+lds	ix8	CF 08	2
+lds	iy8	DF 08	2
+lds	iz8	EF 08	2
+lds	rel	17 FF 20 24	4
+ldx	dp,dir	17 FC 00 08	4
+ldx	ext	17 FC 12 34	4
+ldx	ext20	17 FC 23 45	4
+ldx	imm16	37 BC 12 34	4
+ldx	imm8	37 BC 00 05	4
+ldx	ix16	17 CC 12 34	4
+ldx	ix8	CC 08	2
+ldx	iy8	DC 08	2
+ldx	iz8	EC 08	2
+ldx	rel	17 FC 20 4A	4
+ldy	dp,dir	17 FD 00 08	4
+ldy	ext	17 FD 12 34	4
+ldy	ext20	17 FD 23 45	4
+ldy	imm16	37 BD 12 34	4
+ldy	imm8	37 BD 00 05	4
+ldy	ix16	17 CD 12 34	4
+ldy	ix8	CD 08	2
+ldy	iy8	DD 08	2
+ldy	iz8	ED 08	2
+ldy	rel	17 FD 20 70	4
+ldz	dp,dir	17 FE 00 08	4
+ldz	ext	17 FE 12 34	4
+ldz	ext20	17 FE 23 45	4
+ldz	imm16	37 BE 12 34	4
+ldz	imm8	37 BE 00 05	4
+ldz	ix16	17 CE 12 34	4
+ldz	ix8	CE 08	2
+ldz	iy8	DE 08	2
+ldz	iz8	EE 08	2
+ldz	rel	17 FE 20 96	4
+lsla	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	37 04	2
+lslb	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	37 14	2
+lsld	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	27 F4	2
+lsle	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	27 74	2
+lsr	dp,dir	17 3F 00 08	4
+lsr	ext	17 3F 12 34	4
+lsr	ext20	17 3F 23 45	4
+lsr	ix16	17 0F 12 34	4
+lsr	ix8	0F 08	2
+lsr	iy8	1F 08	2
+lsr	iz8	2F 08	2
+lsr	rel	17 3F 21 34	4
+lsra	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	37 0F	2
+lsrb	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	37 1F	2
+lsrd	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	27 FF	2
+lsre	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	27 7F	2
+lsrw	dp,dir	27 3F 00 08	4
+lsrw	ext	27 3F 12 34	4
+lsrw	ext20	27 3F 23 45	4
+lsrw	ix16	27 0F 12 34	4
+lsrw	ix8	27 0F 00 08	4
+lsrw	iy8	27 1F 00 08	4
+lsrw	iz8	27 2F 00 08	4
+lsrw	rel	27 3F 21 D8	4
+movb	ext-idx	32 08 20 00	4
+movb	idx-ext	30 08 20 00	4
+movb	mem-mem	37 FE 10 00 20 00	6
+movw	idx-ext	31 08 20 00	4
+movw	mem-mem	37 FF 10 00 20 00	6
+mul	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	37 24	2
+nega	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	37 02	2
+negb	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	37 12	2
+negd	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	27 F2	2
+nege	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	27 72	2
+nop	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	27 4C	2
+oraa	dp,dir	17 77 00 08	4
+oraa	eind	27 47	2
+oraa	ext	17 77 12 34	4
+oraa	ext20	17 77 23 45	4
+oraa	imm8	77 05	2
+oraa	ix16	17 47 12 34	4
+oraa	ix8	47 08	2
+oraa	iy8	57 08	2
+oraa	iz8	67 08	2
+oraa	rel	17 77 22 BA	4
+orab	dp,dir	17 F7 00 08	4
+orab	eind	27 C7	2
+orab	ext	17 F7 12 34	4
+orab	ext20	17 F7 23 45	4
+orab	imm8	F7 05	2
+orab	ix16	17 C7 12 34	4
+orab	ix8	C7 08	2
+orab	iy8	D7 08	2
+orab	iz8	E7 08	2
+orab	rel	17 F7 22 DC	4
+ord	dp,dir	37 F7 00 08	4
+ord	eind	27 87	2
+ord	ext	37 F7 12 34	4
+ord	ext20	37 F7 23 45	4
+ord	imm16	37 B7 12 34	4
+ord	imm8	37 B7 00 05	4
+ord	ix16	37 C7 12 34	4
+ord	ix8	87 08	2
+ord	iy8	97 08	2
+ord	iz8	A7 08	2
+ord	rel	37 F7 23 04	4
+ore	dp,dir	37 77 00 08	4
+ore	ext	37 77 12 34	4
+ore	ext20	37 77 23 45	4
+ore	imm16	37 37 12 34	4
+ore	imm8	37 37 00 05	4
+ore	ix16	37 47 12 34	4
+ore	ix8	37 47 00 08	4
+ore	iy8	37 57 00 08	4
+ore	iz8	37 67 00 08	4
+ore	rel	37 77 23 30	4
+orp	imm16	37 3B 12 34	4
+orp	imm8	37 3B 00 05	4
+psha	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	37 08	2
+pshb	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	37 18	2
+pshm	eind	34 06	2
+pshm	reg	34 03	2
+pshy	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	34 08	2
+pula	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	37 09	2
+pulb	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	37 19	2
+pulm	eind	35 30	2
+pulm	reg	35 60	2
+puly	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	35 08	2
+rmac	mac	FB 44	2
+rola	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	37 0C	2
+rolb	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	37 1C	2
+rold	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	27 FC	2
+role	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	27 7C	2
+rora	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	37 0E	2
+rorb	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	37 1E	2
+rord	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	27 FE	2
+rore	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	27 7E	2
+rorw	dp,dir	27 3E 00 08	4
+rorw	ext	27 3E 12 34	4
+rorw	ext20	27 3E 23 45	4
+rorw	ix16	27 0E 12 34	4
+rorw	ix8	27 0E 00 08	4
+rorw	iy8	27 1E 00 08	4
+rorw	iz8	27 2E 00 08	4
+rorw	rel	27 3E 25 24	4
+rti	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	27 77	2
+rts	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	27 F7	2
+sba	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	37 0A	2
+sbca	dp,dir	17 72 00 08	4
+sbca	eind	27 42	2
+sbca	ext	17 72 12 34	4
+sbca	ext20	17 72 23 45	4
+sbca	imm8	72 05	2
+sbca	ix16	17 42 12 34	4
+sbca	ix8	42 08	2
+sbca	iy8	52 08	2
+sbca	iz8	62 08	2
+sbca	rel	17 72 25 A6	4
+sbcd	dp,dir	37 F2 00 08	4
+sbcd	eind	27 82	2
+sbcd	ext	37 F2 12 34	4
+sbcd	ext20	37 F2 23 45	4
+sbcd	imm16	37 B2 12 34	4
+sbcd	imm8	37 B2 00 05	4
+sbcd	ix16	37 C2 12 34	4
+sbcd	ix8	82 08	2
+sbcd	iy8	92 08	2
+sbcd	iz8	A2 08	2
+sbcd	rel	37 F2 25 CE	4
+sbce	dp,dir	37 72 00 08	4
+sbce	ext	37 72 12 34	4
+sbce	ext20	37 72 23 45	4
+sbce	imm16	37 32 12 34	4
+sbce	imm8	37 32 00 05	4
+sbce	ix16	37 42 12 34	4
+sbce	ix8	37 42 00 08	4
+sbce	iy8	37 52 00 08	4
+sbce	iz8	37 62 00 08	4
+sbce	rel	37 72 25 FA	4
+sde	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	27 79	2
+staa	dp,dir	17 7A 00 08	4
+staa	eind	27 4A	2
+staa	ext	17 7A 12 34	4
+staa	ext20	17 7A 23 45	4
+staa	ix16	17 4A 12 34	4
+staa	ix8	4A 08	2
+staa	iy8	5A 08	2
+staa	iz8	6A 08	2
+staa	rel	17 7A 26 3A	4
+stab	dp,dir	17 FA 00 08	4
+stab	eind	27 CA	2
+stab	ext	17 FA 12 34	4
+stab	ext20	17 FA 23 45	4
+stab	ix16	17 CA 12 34	4
+stab	ix8	CA 08	2
+stab	iy8	DA 08	2
+stab	iz8	EA 08	2
+stab	rel	17 FA 26 5A	4
+std	dp,dir	37 FA 00 08	4
+std	eind	27 8A	2
+std	ext	37 FA 12 34	4
+std	ext20	37 FA 23 45	4
+std	ix16	37 CA 12 34	4
+std	ix8	8A 08	2
+std	iy8	9A 08	2
+std	iz8	AA 08	2
+std	rel	37 FA 26 7A	4
+ste	dp,dir	37 7A 00 08	4
+ste	ext	37 7A 12 34	4
+ste	ext20	37 7A 23 45	4
+ste	ix16	37 4A 12 34	4
+ste	ix8	37 4A 00 08	4
+ste	iy8	37 5A 00 08	4
+ste	iz8	37 6A 00 08	4
+ste	rel	37 7A 26 9E	4
+stx	dp,dir	17 BC 00 08	4
+stx	ext	17 BC 12 34	4
+stx	ext20	17 BC 23 45	4
+stx	ix16	17 8C 12 34	4
+stx	ix8	8C 08	2
+stx	iy8	9C 08	2
+stx	iz8	AC 08	2
+stx	rel	17 BC 26 BC	4
+sty	dp,dir	17 BD 00 08	4
+sty	ext	17 BD 12 34	4
+sty	ext20	17 BD 23 45	4
+sty	ix16	17 8D 12 34	4
+sty	ix8	8D 08	2
+sty	iy8	9D 08	2
+sty	iz8	AD 08	2
+sty	rel	17 BD 26 DA	4
+suba	dp,dir	17 70 00 08	4
+suba	eind	27 40	2
+suba	ext	17 70 12 34	4
+suba	ext20	17 70 23 45	4
+suba	imm8	70 05	2
+suba	ix16	17 40 12 34	4
+suba	ix8	40 08	2
+suba	iy8	50 08	2
+suba	iz8	60 08	2
+suba	rel	17 70 26 FC	4
+subb	dp,dir	17 F0 00 08	4
+subb	eind	27 C0	2
+subb	ext	17 F0 12 34	4
+subb	ext20	17 F0 23 45	4
+subb	imm8	F0 05	2
+subb	ix16	17 C0 12 34	4
+subb	ix8	C0 08	2
+subb	iy8	D0 08	2
+subb	iz8	E0 08	2
+subb	rel	17 F0 27 1E	4
+subd	dp,dir	37 F0 00 08	4
+subd	eind	27 80	2
+subd	ext	37 F0 12 34	4
+subd	ext20	37 F0 23 45	4
+subd	imm16	37 B0 12 34	4
+subd	imm8	37 B0 00 05	4
+subd	ix16	37 C0 12 34	4
+subd	ix8	80 08	2
+subd	iy8	90 08	2
+subd	iz8	A0 08	2
+subd	rel	37 F0 27 46	4
+sube	dp,dir	37 70 00 08	4
+sube	ext	37 70 12 34	4
+sube	ext20	37 70 23 45	4
+sube	imm16	37 30 12 34	4
+sube	imm8	37 30 00 05	4
+sube	ix16	37 40 12 34	4
+sube	ix8	37 40 00 08	4
+sube	iy8	37 50 00 08	4
+sube	iz8	37 60 00 08	4
+sube	rel	37 70 27 72	4
+sxt	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	27 F8	2
+tab	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	37 17	2
+tba	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	37 07	2
+tbek	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	27 FA	2
+tbsk	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	37 9F	2
+tbxk	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	37 9C	2
+tbyk	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	37 9D	2
+tbzk	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	37 9E	2
+tde	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	27 7B	2
+tdmsk	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	37 2F	2
+ted	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	27 FB	2
+tem	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	27 B2	2
+tmer	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	27 B4	2
+tmet	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	27 B5	2
+tpa	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	37 FC	2
+tst	dp,dir	17 36 00 08	4
+tst	ext	17 36 12 34	4
+tst	ext20	17 36 23 45	4
+tst	ix16	17 06 12 34	4
+tst	ix8	06 08	2
+tst	iy8	16 08	2
+tst	iz8	26 08	2
+tst	rel	17 36 29 70	4
+tsta	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	37 06	2
+tstb	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	37 16	2
+tstd	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	27 F6	2
+tste	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	27 76	2
+tstw	dp,dir	27 36 00 08	4
+tstw	ext	27 36 12 34	4
+tstw	ext20	27 36 23 45	4
+tstw	ix16	27 06 12 34	4
+tstw	ix8	27 06 00 08	4
+tstw	iy8	27 16 00 08	4
+tstw	iz8	27 26 00 08	4
+tstw	rel	27 36 2A 14	4
+tsy	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	27 5F	2
+txkb	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	37 AC	2
+txy	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	27 5C	2
+txz	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	27 6C	2
+tyx	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	27 4D	2
+xgab	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	37 1A	2
+xgde	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	27 7A	2
+xgdx	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	37 CC	2
+xgdy	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	37 DC	2
+xgdz	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	37 EC	2
+xgex	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	37 4C	2
+xgey	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	37 5C	2
+xgez	inh,imm8,imm16,dp,dir,ext,ext20,ix8,ix16,iy8,iz8,eind,rel,bit,bitbr,reg	37 6C	2
