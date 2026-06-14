@@ -14,6 +14,15 @@ private_path.toml
 **/[Jj][Tt][Ee][Cc]*
 **/*[Jj][Tt][Ee][Cc]*
 
+# --- MASM golden oracle (tools/oracle) ---
+# Local-only config holding the isolated toolchain path, and scratch run outputs.
+*.private.psd1
+oracle-out/
+tools/oracle/_*/
+tools/oracle/_*.lst
+tools/oracle/_*.s19
+tools/oracle/_*.obj
+
 # --- Editor / OS noise ---
 .vscode/
 .idea/

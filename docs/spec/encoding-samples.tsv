@@ -1,0 +1,24 @@
+﻿loc	bytes	source
+002000	27 F7	rts
+002002	37 05	clra
+002004	27 F4	asld
+002006	37 24	mul
+002008	75 12	ldaa #$12
+00200A	F5 34	ldab #$34
+00200C	71 10	adda #$10
+00200E	76 0F	anda #$0f
+002010	78 01	cmpa #$01
+002012	37 B1 12 34	addd #$1234
+002016	37 B5 12 34	ldd #$1234
+00201A	37 BC AB CD	ldx #$abcd
+00201E	37 BD 10 00	ldy #$1000
+002022	17 75 12 34	ldaa $1234
+002026	17 7A 20 00	staa $2000
+00202A	37 F5 30 00	ldd $3000
+00202E	45 10	ldaa $10,x
+002030	C5 00	ldab 0,x
+002032	95 20	ldd $20,y
+002034	B0 FA	lbl1    bra lbl1
+002036	B7 F8	beq lbl1
+002038	B6 F6	bne lbl1
+00203A	37 80 FF F4	lbra lbl1

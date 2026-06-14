@@ -1,0 +1,65 @@
+Captured from the original Motorola MASM 4.6 (via the DOSBox oracle) for a
+synthetic generic HC16 snippet. Documents the exact .LST format the new
+assembler's listing output must reproduce. No proprietary content.
+
+Copyright 1993, Motorola Macro Assembler   Version 4.6                   Page 1
+68HC16 - IN.ASM - <date>
+
+
+Abs.   Loc    Obj. code   Source line
+----   ------ ---------   -----------
+   1                              org $2000
+   2                      * --- inherent ---
+   3   002000 27F7                rts
+   4   002002 3705                clra
+   5   002004 27F4                asld
+   6   002006 3724                mul
+   7                      * --- immediate8 ---
+   8   002008 7512                ldaa #$12
+   9   00200A F534                ldab #$34
+  10   00200C 7110                adda #$10
+  11   00200E 760F                anda #$0f
+  12   002010 7801                cmpa #$01
+  13                      * --- immediate16 ---
+  14   002012 37B1 1234           addd #$1234
+  15   002016 37B5 1234           ldd #$1234
+  16   00201A 37BC ABCD           ldx #$abcd
+  17   00201E 37BD 1000           ldy #$1000
+  18                      * --- extended ---
+  19   002022 1775 1234           ldaa $1234
+  20   002026 177A 2000           staa $2000
+  21   00202A 37F5 3000           ldd $3000
+  22                      * --- indexed X ---
+  23   00202E 4510                ldaa $10,x
+  24   002030 C500                ldab 0,x
+  25   002032 9520                ldd $20,y
+  26                      * --- relative ---
+  27   002034 B0FA        lbl1    bra lbl1
+  28   002036 B7F8                beq lbl1
+  29   002038 B6F6                bne lbl1
+  30   00203A 3780 FFF4           lbra lbl1
+  31                              end
+
+  31 lines assembled
+Copyright 1993, Motorola Macro Assembler   Version 4.6                   Page 2
+68HC16 - IN.ASM - <date>
+
+
+Symbol Table:
+
+symbol name       attrib.   section    value
+-----------       -------   -------    -----
+.text             section   0          0x00002000
+lbl1              .text     0          0x00002034
+
+2 symbols
+Copyright 1993, Motorola Macro Assembler   Version 4.6                   Page 3
+68HC16 - IN.ASM - <date>
+
+
+Cross Reference Table:
+
+lbl1           	 30 29 28 27 @27
+
+(In the Cross Reference Table, the numbers are the listing line numbers that
+reference the symbol; "@N" marks the definition line.)
