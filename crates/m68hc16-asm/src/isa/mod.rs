@@ -52,10 +52,14 @@ pub enum Mode {
     BitExt,
     /// Bit op on an 8-bit indexed address: `mask8`, `off8`.
     BitInd(IdxReg),
+    /// Bit op on a 16-bit indexed address: `mask8`, `off16`.
+    BitInd16(IdxReg),
     /// Bit-conditional branch (extended): `mask8`, `addr16`, `rel16`.
     BitBrExt,
     /// Bit-conditional branch (8-bit indexed): `mask8`, `off8`, `rel8`.
     BitBrInd(IdxReg),
+    /// Bit-conditional branch (16-bit indexed): `mask8`, `off16`, `rel16`.
+    BitBrInd16(IdxReg),
     /// `pshm`/`pulm` register-mask byte.
     RegList,
     /// `movb`/`movw` memory-to-memory: two 16-bit addresses.

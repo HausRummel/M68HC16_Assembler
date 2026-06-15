@@ -204,11 +204,26 @@ is pervasive, so each shrink loses 2 bytes and the layout drifts (vectors/pointe
 then mis-resolve). `HC16_SYMS=<file>` dumps our symbol table for comparison vs the
 MASM listing.
 
-**Fix path (next):** track symbol *kind* — labels are relocatable; `equ`/`set` to a
-constant are absolute (propagate through expressions) — and force the wide indexed
-(and likely immediate/extended) form whenever an operand expression involves a
-relocatable symbol. This is the absolute-vs-relocatable half of section/relocation
-semantics, and is what stands between "assembles cleanly" and "byte-exact".
+**Operand sizing rule (implemented).** The actual rule is *forward-reference
+commitment* (classic two-pass), not relocation: MASM uses the wide operand form
+when an expression references a symbol defined **later** in the source (or
+undefined), and otherwise sizes by value. Verified: `FWD_EQU,z` (forward `equ`) →
+`Ind16`; `back2-back1,z` (both prior labels) → `Ind8`. Implemented via a
+precomputed symbol→definition-line map and a `needs_wide()` check on indexed and
+immediate operands. (A separate `Kind` Abs/Rel on each symbol is retained as
+genuine relocation metadata for the eventual linker.)
+
+**16-bit indexed bit ops (implemented).** A whole missing family: `bset/bclr/
+brset/brclr addr,reg,#mask[,tgt]` with a 16-bit offset use bare opcodes
+`08/09/0A/0B` (X), `18..1B` (Y), `28..2B` (Z) — distinct from the `17`-prefixed
+8-bit forms — chosen by offset size + forward-ref.
+
+**Progress (iterative).** Matching symbol addresses vs the MASM listing went
+9,638 → 10,673 / 18,580 as these landed; each fix pushes the first drift point
+later. The find-fix loop: dump our symbols (`HC16_SYMS=<file>`), diff against the
+listing's symbol table, read the MASM listing at the first drift, probe the oracle
+for the mis-sized instruction's true encoding, add the mode/rule. Remaining drift
+(currently from ~`0x13DA0`) is more of the same.
 
 Then: full sections/relocation + linker, listing/map output, byte-exact S0/S9.
 

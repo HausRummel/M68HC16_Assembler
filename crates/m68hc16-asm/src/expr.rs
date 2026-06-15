@@ -2,11 +2,16 @@
 //!
 //! Supports the MASM operand grammar seen in the corpus: `$hex`, `%binary`,
 //! `@octal`, decimal, `'c'` character literals, the `*` location counter, symbols,
-//! parentheses, the binary operators `+ - * / % & | ^ << >>`, and unary `- ~`.
-//! A Pratt (precedence-climbing) parser keeps `*` unambiguous: in prefix position
-//! it is the location counter, in infix position it is multiplication.
+//! parentheses, the binary operators `+ - * / % & | ^ << >>`, unary `- ~`, and the
+//! `PAGE(x)` built-in. A Pratt (precedence-climbing) parser keeps `*` unambiguous:
+//! in prefix position it is the location counter, in infix position multiplication.
+//!
+//! Each result also carries a *relocation count*: the net number of relocatable
+//! (address-like) terms. `0` means the expression is absolute. `label + 4` is `1`;
+//! `labelA - labelB` is `0` (a constant). MASM uses the wide operand form whenever
+//! the count is non-zero, even if the value fits a byte — see [`eval_full`].
 
-use crate::symbols::SymbolTable;
+use crate::symbols::{Kind, SymbolTable};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EvalError {
@@ -25,8 +30,16 @@ impl std::fmt::Display for EvalError {
     }
 }
 
-/// Evaluate `input` with the current location counter `lc` and `symbols`.
+/// Value paired with its net relocation count.
+type V = (i64, i32);
+
+/// Evaluate `input`, returning just the value.
 pub fn eval(input: &str, lc: u32, symbols: &SymbolTable) -> Result<i64, EvalError> {
+    eval_full(input, lc, symbols).map(|(v, _)| v)
+}
+
+/// Evaluate `input`, returning `(value, reloc)`. `reloc == 0` means absolute.
+pub fn eval_full(input: &str, lc: u32, symbols: &SymbolTable) -> Result<V, EvalError> {
     let mut p = P { s: input.as_bytes(), i: 0, lc, sym: symbols };
     let v = p.expr(0)?;
     p.ws();
@@ -54,8 +67,7 @@ impl<'a> P<'a> {
         self.s.get(self.i).copied()
     }
 
-    /// Precedence-climbing expression parse. `min_bp` is the minimum binding power.
-    fn expr(&mut self, min_bp: u8) -> Result<i64, EvalError> {
+    fn expr(&mut self, min_bp: u8) -> Result<V, EvalError> {
         self.ws();
         let mut lhs = self.prefix()?;
         loop {
@@ -71,16 +83,18 @@ impl<'a> P<'a> {
         Ok(lhs)
     }
 
-    fn prefix(&mut self) -> Result<i64, EvalError> {
+    fn prefix(&mut self) -> Result<V, EvalError> {
         self.ws();
         match self.peek() {
             Some(b'-') => {
                 self.i += 1;
-                Ok(-self.expr(100)?)
+                let (v, r) = self.expr(100)?;
+                Ok((-v, -r))
             }
             Some(b'~') => {
                 self.i += 1;
-                Ok(!self.expr(100)?)
+                let (v, r) = self.expr(100)?;
+                Ok((!v, nz(r)))
             }
             Some(b'+') => {
                 self.i += 1;
@@ -98,30 +112,29 @@ impl<'a> P<'a> {
                 }
             }
             Some(b'*') => {
-                // Prefix `*` = location counter.
+                // Prefix `*` = location counter (an address -> relocatable).
                 self.i += 1;
-                Ok(self.lc as i64)
+                Ok((self.lc as i64, 1))
             }
             _ => self.atom(),
         }
     }
 
-    fn atom(&mut self) -> Result<i64, EvalError> {
+    fn atom(&mut self) -> Result<V, EvalError> {
         match self.peek() {
             Some(b'$') => {
                 self.i += 1;
-                self.radix(16, |c| c.is_ascii_hexdigit())
+                Ok((self.radix(16, |c| c.is_ascii_hexdigit())?, 0))
             }
             Some(b'%') => {
                 self.i += 1;
-                self.radix(2, |c| c == b'0' || c == b'1')
+                Ok((self.radix(2, |c| c == b'0' || c == b'1')?, 0))
             }
             Some(b'@') => {
                 self.i += 1;
-                self.radix(8, |c| (b'0'..=b'7').contains(&c))
+                Ok((self.radix(8, |c| (b'0'..=b'7').contains(&c))?, 0))
             }
             Some(b'\'') => {
-                // Character literal: 'c (closing quote optional, as in Motorola asm).
                 self.i += 1;
                 let Some(c) = self.peek() else {
                     return Err(EvalError::Syntax("empty char literal".into()));
@@ -130,9 +143,9 @@ impl<'a> P<'a> {
                 if self.peek() == Some(b'\'') {
                     self.i += 1;
                 }
-                Ok(c as i64)
+                Ok((c as i64, 0))
             }
-            Some(c) if c.is_ascii_digit() => self.radix(10, |c| c.is_ascii_digit()),
+            Some(c) if c.is_ascii_digit() => Ok((self.radix(10, |c| c.is_ascii_digit())?, 0)),
             Some(c) if is_sym_start(c) => self.symbol(),
             _ => Err(EvalError::Syntax("expected operand".into())),
         }
@@ -147,36 +160,35 @@ impl<'a> P<'a> {
             return Err(EvalError::Syntax("expected digits".into()));
         }
         let text = std::str::from_utf8(&self.s[start..self.i]).unwrap();
-        i64::from_str_radix(text, base as u32)
-            .map_err(|_| EvalError::Syntax(format!("bad number `{text}`")))
+        i64::from_str_radix(text, base as u32).map_err(|_| EvalError::Syntax(format!("bad number `{text}`")))
     }
 
-    fn symbol(&mut self) -> Result<i64, EvalError> {
+    fn symbol(&mut self) -> Result<V, EvalError> {
         let start = self.i;
         while self.i < self.s.len() && is_sym_char(self.s[self.i]) {
             self.i += 1;
         }
         let name = std::str::from_utf8(&self.s[start..self.i]).unwrap();
-        // Built-in function call: NAME(expr).
+        // Built-in function call: NAME(expr). The result is an absolute value.
         if self.peek() == Some(b'(') {
             self.i += 1;
-            let arg = self.expr(0)?;
+            let (arg, _) = self.expr(0)?;
             self.ws();
             if self.peek() != Some(b')') {
                 return Err(EvalError::Syntax("expected `)`".into()));
             }
             self.i += 1;
-            return apply_func(name, arg);
+            return Ok((apply_func(name, arg)?, 0));
         }
-        self.sym
-            .get(name)
-            .ok_or_else(|| EvalError::Undefined(name.to_string()))
+        match self.sym.get_full(name) {
+            Some((v, Kind::Rel)) => Ok((v, 1)),
+            Some((v, Kind::Abs)) => Ok((v, 0)),
+            None => Err(EvalError::Undefined(name.to_string())),
+        }
     }
 
-    /// Returns (operator-bytes, left-bp, right-bp) for the infix operator at `i`.
     fn peek_infix(&self) -> Option<(&'static [u8], u8, u8)> {
         let rest = &self.s[self.i..];
-        // Multi-byte operators first.
         if rest.starts_with(b"<<") {
             return Some((b"<<", 50, 51));
         }
@@ -197,8 +209,13 @@ impl<'a> P<'a> {
     }
 }
 
-fn apply(op: &[u8], a: i64, b: i64) -> Result<i64, EvalError> {
-    Ok(match op {
+/// Non-zero-collapse: any non-zero relocation becomes a single relocatable term.
+fn nz(r: i32) -> i32 {
+    if r != 0 { 1 } else { 0 }
+}
+
+fn apply(op: &[u8], (a, ra): V, (b, rb): V) -> Result<V, EvalError> {
+    let val = match op {
         b"|" => a | b,
         b"^" => a ^ b,
         b"&" => a & b,
@@ -220,7 +237,15 @@ fn apply(op: &[u8], a: i64, b: i64) -> Result<i64, EvalError> {
             a % b
         }
         _ => unreachable!(),
-    })
+    };
+    // `+`/`-` combine relocation linearly (so label-label cancels); other operators
+    // yield a relocatable result if either side was relocatable.
+    let reloc = match op {
+        b"+" => ra + rb,
+        b"-" => ra - rb,
+        _ => nz(ra | rb),
+    };
+    Ok((val, reloc))
 }
 
 /// Built-in MASM operand functions. `PAGE(x)` is the bank byte of a 20-bit
@@ -280,8 +305,26 @@ mod tests {
     #[test]
     fn symbols_resolve_and_report_undefined() {
         let mut t = SymbolTable::new();
-        t.define("FOO", 0x40);
+        t.define("FOO", 0x40, Kind::Abs);
         assert_eq!(eval("FOO+1", 0, &t).unwrap(), 0x41);
         assert_eq!(eval("BAR", 0, &t), Err(EvalError::Undefined("BAR".into())));
+    }
+
+    #[test]
+    fn relocation_tracking() {
+        let mut t = SymbolTable::new();
+        t.define("LBL", 0x90, Kind::Rel);
+        t.define("OTHER", 0x10, Kind::Rel);
+        t.define("RB", 0x10, Kind::Abs);
+        // absolute expressions
+        assert_eq!(eval_full("$12", 0, &t).unwrap(), (0x12, 0));
+        assert_eq!(eval_full("RB+1", 0, &t).unwrap(), (0x11, 0));
+        // relocatable: a label, or label minus an absolute
+        assert_eq!(eval_full("LBL", 0, &t).unwrap().1, 1);
+        assert_eq!(eval_full("LBL-RB", 0, &t).unwrap(), (0x80, 1));
+        // label minus label cancels to absolute
+        assert_eq!(eval_full("LBL-OTHER", 0, &t).unwrap(), (0x80, 0));
+        // PAGE() is absolute
+        assert_eq!(eval_full("PAGE(LBL)", 0, &t).unwrap().1, 0);
     }
 }

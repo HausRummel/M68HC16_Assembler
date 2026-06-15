@@ -12,7 +12,7 @@ use crate::diag::Diagnostic;
 use crate::expr::{self, EvalError};
 use crate::isa::{self, IdxReg, InsnDef, Mode, ModeEntry};
 use crate::lexer::split_line;
-use crate::symbols::SymbolTable;
+use crate::symbols::{Kind, SymbolTable};
 
 /// Result of assembling a source: emitted `(address, byte)` pairs (in order),
 /// the final symbol table, and diagnostics.
@@ -51,11 +51,15 @@ pub fn assemble_source_in(src: &str, base_dir: Option<&Path>) -> Object {
             return Object { diagnostics: diags, ..Object::default() };
         }
     };
+    // First definition line of each symbol (1-based, matching run_pass `lineno`).
+    // Used to size operands: a reference to a symbol defined *later* (forward
+    // reference) commits to the wide form, as MASM's first pass does.
+    let def_line = definition_lines(&lines);
 
     let mut symbols = SymbolTable::new();
     let mut prev: Option<Vec<(u32, u8)>> = None;
     for _ in 0..40 {
-        let obj = run_pass(&lines, &symbols);
+        let obj = run_pass(&lines, &symbols, &def_line);
         if prev.as_ref() == Some(&obj.data) {
             if let Ok(path) = std::env::var("HC16_SYMS") {
                 use std::fmt::Write as _;
@@ -70,10 +74,47 @@ pub fn assemble_source_in(src: &str, base_dir: Option<&Path>) -> Object {
         prev = Some(obj.data.clone());
         symbols = obj.symbols.clone();
     }
-    let mut obj = run_pass(&lines, &symbols);
+    let mut obj = run_pass(&lines, &symbols, &def_line);
     obj.diagnostics
         .push(Diagnostic::warning("assembly did not converge (possible phase error)"));
     obj
+}
+
+/// First (1-based) line where each symbol is defined — a label or `equ`/`set`.
+fn definition_lines(lines: &[String]) -> HashMap<String, usize> {
+    let mut m = HashMap::new();
+    for (i, line) in lines.iter().enumerate() {
+        if let Some(lbl) = split_line(line).label {
+            m.entry(lbl.to_string()).or_insert(i + 1);
+        }
+    }
+    m
+}
+
+/// Does `expr` reference a symbol that is undefined or defined *after* `cur_line`?
+/// Such forward references force the wide operand form. Identifiers immediately
+/// followed by `(` are built-in functions (e.g. `PAGE`), not symbols.
+fn needs_wide(expr: &str, cur_line: u32, def_line: &HashMap<String, usize>) -> bool {
+    let b = expr.as_bytes();
+    let mut i = 0;
+    while i < b.len() {
+        if b[i].is_ascii_alphabetic() || b[i] == b'_' || b[i] == b'.' {
+            let start = i;
+            while i < b.len() && (b[i].is_ascii_alphanumeric() || b[i] == b'_' || b[i] == b'.') {
+                i += 1;
+            }
+            if b.get(i) == Some(&b'(') {
+                continue; // function call, not a symbol
+            }
+            match def_line.get(&expr[start..i]) {
+                Some(&d) if d as u32 <= cur_line => {} // defined at/before -> known
+                _ => return true,                      // forward or undefined -> wide
+            }
+        } else {
+            i += 1;
+        }
+    }
+    false
 }
 
 // ---- Preprocessing: includes + macro expansion ------------------------------
@@ -208,7 +249,7 @@ fn substitute_params(line: &str, args: &[String]) -> String {
     out
 }
 
-fn run_pass(lines: &[String], sym_in: &SymbolTable) -> Object {
+fn run_pass(lines: &[String], sym_in: &SymbolTable, def_line: &HashMap<String, usize>) -> Object {
     let mut out = Object::default();
     let mut lc: u32 = 0;
     // Section origin (first `org`); used to pad the section to an even length, which
@@ -254,8 +295,10 @@ fn run_pass(lines: &[String], sym_in: &SymbolTable) -> Object {
                     if let Some(operand) = line.operand {
                         // MASM's `EQU a,b` takes the first value.
                         let first = split_top_commas(operand).first().map_or(operand, |s| s.trim());
-                        match expr::eval(first, lc, sym_in) {
-                            Ok(v) => out.symbols.define(lbl, v),
+                        match expr::eval_full(first, lc, sym_in) {
+                            Ok((v, r)) => {
+                                out.symbols.define(lbl, v, if r == 0 { Kind::Abs } else { Kind::Rel })
+                            }
                             Err(EvalError::Undefined(_)) => {} // resolves on a later pass
                             Err(EvalError::Syntax(s)) => err(&mut out, lineno, s),
                         }
@@ -263,7 +306,8 @@ fn run_pass(lines: &[String], sym_in: &SymbolTable) -> Object {
                         err(&mut out, lineno, "equ requires an operand".into());
                     }
                 }
-                _ => out.symbols.define(lbl, lc as i64),
+                // A label is an address -> relocatable.
+                _ => out.symbols.define(lbl, lc as i64, Kind::Rel),
             }
         }
 
@@ -311,7 +355,7 @@ fn run_pass(lines: &[String], sym_in: &SymbolTable) -> Object {
             "fcc" => emit_fcc(&mut out, &mut lc, lineno, line.operand),
             "end" => break,
             _ => match isa::lookup(op) {
-                Some(insn) => match encode_instruction(insn, line.operand, lc, sym_in) {
+                Some(insn) => match encode_instruction(insn, line.operand, lc, sym_in, lineno, def_line) {
                     Ok(enc) => {
                         for n in enc.unresolved {
                             err(&mut out, lineno, format!("undefined symbol \"{n}\""));
@@ -413,7 +457,14 @@ struct Enc {
     unresolved: Vec<String>,
 }
 
-fn encode_instruction(insn: &InsnDef, operand: Option<&str>, lc: u32, sym: &SymbolTable) -> Result<Enc, String> {
+fn encode_instruction(
+    insn: &InsnDef,
+    operand: Option<&str>,
+    lc: u32,
+    sym: &SymbolTable,
+    cur_line: u32,
+    def_line: &HashMap<String, usize>,
+) -> Result<Enc, String> {
     let mut unresolved = Vec::new();
 
     // Inherent-only instructions ignore any operand — MASM does too (the operand
@@ -444,7 +495,8 @@ fn encode_instruction(insn: &InsnDef, operand: Option<&str>, lc: u32, sym: &Symb
         };
         let imm8 = mode_of(insn, |m| matches!(m, Mode::Imm8));
         let imm16 = mode_of(insn, |m| matches!(m, Mode::Imm16));
-        let e = if !undef && (0..=0xFF).contains(&v) { imm8.or(imm16) } else { imm16.or(imm8) }
+        let fits8 = !undef && !needs_wide(rest, cur_line, def_line) && (0..=0xFF).contains(&v);
+        let e = if fits8 { imm8.or(imm16) } else { imm16.or(imm8) }
             .ok_or_else(|| format!("`{}` has no immediate mode", insn.mnemonic))?;
         let mut bytes = e.prefix.to_vec();
         emit_be(&mut bytes, v, e.operand_len);
@@ -453,7 +505,7 @@ fn encode_instruction(insn: &InsnDef, operand: Option<&str>, lc: u32, sym: &Symb
 
     // Bit-conditional branch: extended `addr,#mask,target` (rel16) or indexed
     // `off,reg,#mask,target` (rel8). The CPU16 prefetch makes rel = target-(lc+6).
-    if mode_of(insn, |m| matches!(m, Mode::BitBrExt | Mode::BitBrInd(_))).is_some() {
+    if mode_of(insn, |m| matches!(m, Mode::BitBrExt | Mode::BitBrInd(_) | Mode::BitBrInd16(_))).is_some() {
         let parts: Vec<&str> = split_top_commas(raw).iter().map(|s| s.trim()).collect();
         match parts.as_slice() {
             [addr, mask, tgt] => {
@@ -470,15 +522,26 @@ fn encode_instruction(insn: &InsnDef, operand: Option<&str>, lc: u32, sym: &Symb
             }
             [off, reg, mask, tgt] if parse_reg(reg).is_some() => {
                 let r = parse_reg(reg).unwrap();
-                let e = mode_of(insn, |m| matches!(m, Mode::BitBrInd(rr) if rr == r))
-                    .ok_or_else(|| format!("`{}`: no indexed bit-branch for {r:?}", insn.mnemonic))?;
                 let o = eval_or_zero(off, lc, sym, &mut unresolved)?;
                 let m = eval_or_zero(mask.trim_start_matches('#'), lc, sym, &mut unresolved)?;
                 let rel = eval_or_zero(tgt, lc, sym, &mut unresolved)? - (lc as i64 + 6);
-                let mut bytes = e.prefix.to_vec();
-                bytes.push(m as u8);
-                bytes.push(o as u8);
-                bytes.push(rel as u8);
+                let wide = needs_wide(off, cur_line, def_line) || !(0..=0xFF).contains(&o);
+                let mut bytes;
+                if wide {
+                    let e = mode_of(insn, |mm| matches!(mm, Mode::BitBrInd16(rr) if rr == r))
+                        .ok_or_else(|| format!("`{}`: no 16-bit indexed bit-branch for {r:?}", insn.mnemonic))?;
+                    bytes = e.prefix.to_vec();
+                    bytes.push(m as u8);
+                    emit_be(&mut bytes, o, 2);
+                    emit_be(&mut bytes, rel, 2);
+                } else {
+                    let e = mode_of(insn, |mm| matches!(mm, Mode::BitBrInd(rr) if rr == r))
+                        .ok_or_else(|| format!("`{}`: no indexed bit-branch for {r:?}", insn.mnemonic))?;
+                    bytes = e.prefix.to_vec();
+                    bytes.push(m as u8);
+                    bytes.push(o as u8);
+                    bytes.push(rel as u8);
+                }
                 return Ok(Enc { bytes, unresolved });
             }
             _ => return Err(format!("`{}`: expects addr,#mask,target or off,reg,#mask,target", insn.mnemonic)),
@@ -486,7 +549,7 @@ fn encode_instruction(insn: &InsnDef, operand: Option<&str>, lc: u32, sym: &Symb
     }
 
     // Bit set/clear: extended `addr,#mask` or indexed `off,reg,#mask`.
-    if mode_of(insn, |m| matches!(m, Mode::BitExt | Mode::BitInd(_))).is_some() {
+    if mode_of(insn, |m| matches!(m, Mode::BitExt | Mode::BitInd(_) | Mode::BitInd16(_))).is_some() {
         let parts: Vec<&str> = split_top_commas(raw).iter().map(|s| s.trim()).collect();
         match parts.as_slice() {
             [addr, mask] => {
@@ -501,13 +564,23 @@ fn encode_instruction(insn: &InsnDef, operand: Option<&str>, lc: u32, sym: &Symb
             }
             [off, reg, mask] if parse_reg(reg).is_some() => {
                 let r = parse_reg(reg).unwrap();
-                let e = mode_of(insn, |m| matches!(m, Mode::BitInd(rr) if rr == r))
-                    .ok_or_else(|| format!("`{}`: no indexed bit op for {r:?}", insn.mnemonic))?;
                 let o = eval_or_zero(off, lc, sym, &mut unresolved)?;
                 let m = eval_or_zero(mask.trim_start_matches('#'), lc, sym, &mut unresolved)?;
-                let mut bytes = e.prefix.to_vec();
-                bytes.push(m as u8);
-                bytes.push(o as u8);
+                let wide = needs_wide(off, cur_line, def_line) || !(0..=0xFF).contains(&o);
+                let mut bytes;
+                if wide {
+                    let e = mode_of(insn, |mm| matches!(mm, Mode::BitInd16(rr) if rr == r))
+                        .ok_or_else(|| format!("`{}`: no 16-bit indexed bit op for {r:?}", insn.mnemonic))?;
+                    bytes = e.prefix.to_vec();
+                    bytes.push(m as u8);
+                    emit_be(&mut bytes, o, 2);
+                } else {
+                    let e = mode_of(insn, |mm| matches!(mm, Mode::BitInd(rr) if rr == r))
+                        .ok_or_else(|| format!("`{}`: no indexed bit op for {r:?}", insn.mnemonic))?;
+                    bytes = e.prefix.to_vec();
+                    bytes.push(m as u8);
+                    bytes.push(o as u8);
+                }
                 return Ok(Enc { bytes, unresolved });
             }
             _ => return Err(format!("`{}`: expects addr,#mask or off,reg,#mask", insn.mnemonic)),
@@ -586,7 +659,8 @@ fn encode_instruction(insn: &InsnDef, operand: Option<&str>, lc: u32, sym: &Symb
                 .ok_or_else(|| format!("`{}` has no E,{reg:?} mode", insn.mnemonic))?;
             return Ok(Enc { bytes: e.prefix.to_vec(), unresolved });
         }
-        // Numeric offset: pick Ind8 when it fits and exists, else Ind16.
+        // Pick Ind8 only for an absolute offset that fits a byte; relocatable
+        // (address-like) offsets take the 16-bit form even when small, as MASM does.
         let (off, undef) = match expr::eval(base, lc, sym) {
             Ok(v) => (v, false),
             Err(EvalError::Undefined(n)) => {
@@ -595,7 +669,7 @@ fn encode_instruction(insn: &InsnDef, operand: Option<&str>, lc: u32, sym: &Symb
             }
             Err(EvalError::Syntax(s)) => return Err(s),
         };
-        let fits8 = !undef && (0..=0xFF).contains(&off);
+        let fits8 = !undef && !needs_wide(base, cur_line, def_line) && (0..=0xFF).contains(&off);
         let e = if fits8 {
             mode_of(insn, |m| matches!(m, Mode::Ind8(r) if r == reg))
                 .or_else(|| mode_of(insn, |m| matches!(m, Mode::Ind16(r) if r == reg)))
