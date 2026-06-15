@@ -186,7 +186,7 @@ pub fn assemble_source_in(src: &str, base_dir: Option<&Path>) -> Object {
             // Convergence is on the *real* bytes; materialise the section fill on
             // the final image (MASM/HEX behaviour) only after the layout settles.
             obj.data = fill_sections(&obj.data, &obj.org_targets);
-            obj.sym_order = order_symbols(&obj.symbols, &lines);
+            obj.sym_order = order_symbols(&obj.symbols, &lines, &obj.line_emit);
             obj.macros = macro_names.clone();
             obj.list_lines = list_lines.clone();
             if let Ok(path) = std::env::var("HC16_LISTLINES") {
@@ -226,7 +226,7 @@ pub fn assemble_source_in(src: &str, base_dir: Option<&Path>) -> Object {
     }
     let mut obj = run_pass(&lines, &symbols, &def_line, Sizing::Use(&widths));
     obj.data = fill_sections(&obj.data, &obj.org_targets);
-    obj.sym_order = order_symbols(&obj.symbols, &lines);
+    obj.sym_order = order_symbols(&obj.symbols, &lines, &obj.line_emit);
     obj.macros = macro_names;
     obj.list_lines = list_lines;
     obj.diagnostics
@@ -239,26 +239,43 @@ pub fn assemble_source_in(src: &str, base_dir: Option<&Path>) -> Object {
 /// forward-referenced by the vector table sorts before its definition. Each
 /// symbol also carries the element context of that first occurrence (the width of
 /// the directive/instruction on that line), which sets its COFF `type`.
-fn order_symbols(symbols: &SymbolTable, lines: &[String]) -> Vec<(String, Option<Elem>)> {
+fn order_symbols(symbols: &SymbolTable, lines: &[String], line_emit: &[LineEmit]) -> Vec<(String, Option<Elem>)> {
     let mut first: HashMap<String, (usize, Option<Elem>)> = HashMap::new();
     let mut seq = 0usize;
-    for line in lines {
+    for (i, line) in lines.iter().enumerate() {
+        // MASM only allocates symbols on lines it actually assembles, so a forward
+        // reference inside a false conditional branch does not enter the table.
+        if !line_emit.get(i).map(|e| e.processed).unwrap_or(true) {
+            continue;
+        }
         let p = split_line(line);
         let ctx = op_elem(p.op);
-        let mut note = |name: &str| {
+        // An inherent (no-operand) instruction's "operand" field is really a
+        // comment, so its identifiers are not references (`SXT  SIGN EXTEND` would
+        // otherwise allocate `SIGN` too early). A data directive (`fdb`/`fcb`/`fcc`)
+        // allocates its operand symbols before its label (MASM reduces the value
+        // list first); an instruction binds its label before the operand.
+        let inherent = p.op.is_some_and(|o| isa::lookup(o).is_some_and(|d| d.modes.iter().all(|m| m.mode == Mode::Inherent)));
+        let ops: Vec<&str> = if inherent {
+            Vec::new()
+        } else {
+            p.operand.map(identifiers).unwrap_or_default()
+        };
+        let is_data = matches!(p.op.map(|o| o.to_ascii_lowercase()).as_deref(), Some("fcb" | "fdb" | "fcc" | "dc.b" | "dc.w"));
+        let mut names: Vec<&str> = Vec::with_capacity(ops.len() + 1);
+        if is_data {
+            names.extend_from_slice(&ops);
+            names.extend(p.label);
+        } else {
+            names.extend(p.label);
+            names.extend_from_slice(&ops);
+        }
+        for name in names {
             first.entry(name.to_string()).or_insert_with(|| {
                 let s = seq;
                 seq += 1;
                 (s, ctx)
             });
-        };
-        if let Some(lbl) = p.label {
-            note(lbl);
-        }
-        if let Some(operand) = p.operand {
-            for id in identifiers(operand) {
-                note(id);
-            }
         }
     }
     let mut out: Vec<(usize, String, Option<Elem>)> = symbols
