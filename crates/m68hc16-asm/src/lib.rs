@@ -97,6 +97,12 @@ pub fn assemble(req: &AssembleRequest) -> AssembleResult {
             .push(Diagnostic::error(format!("cannot write {}: {e}", obj_path.display())));
     }
 
+    // Dev validation hook: dump the listing's Symbol Table block (env HC16_LST).
+    if let Ok(path) = std::env::var("HC16_LST") {
+        let secs = output::coff::section_list(&obj.data, &obj.spans);
+        let _ = std::fs::write(&path, output::listing::symbol_table(&obj.symbols, &obj.macros, &secs));
+    }
+
     let s19_path = req.output_dir.join(format!("{stem}.S19"));
     // HEX.exe converts `<name>.OBJ`, and records that input name in the S0 header.
     let text = output::srec::write_srecords(&obj.data, &format!("{stem}.OBJ"));

@@ -40,6 +40,9 @@ pub struct Object {
     /// forward-referenced in an `fdb` is typed as a word). Populated after
     /// convergence.
     pub sym_order: Vec<(String, Option<Elem>)>,
+    /// Names of every `macro` defined in the source. MASM lists these in the
+    /// `.LST` symbol table (attrib `macro`, no value); they are not in the OBJ.
+    pub macros: Vec<String>,
 }
 
 /// The element kind of a span — drives the COFF symbol `type` (Code=0,
@@ -93,7 +96,7 @@ enum Sizing<'a> {
 ///    instead of oscillating (the classic span-dependent-instruction problem).
 pub fn assemble_source_in(src: &str, base_dir: Option<&Path>) -> Object {
     let raw: Vec<String> = src.lines().map(str::to_string).collect();
-    let lines = match preprocess(&raw, base_dir) {
+    let (lines, macro_names) = match preprocess(&raw, base_dir) {
         Ok(l) => l,
         Err(diags) => {
             return Object { diagnostics: diags, ..Object::default() };
@@ -120,6 +123,7 @@ pub fn assemble_source_in(src: &str, base_dir: Option<&Path>) -> Object {
             // the final image (MASM/HEX behaviour) only after the layout settles.
             obj.data = fill_sections(&obj.data, &obj.org_targets);
             obj.sym_order = order_symbols(&obj.symbols, &lines);
+            obj.macros = macro_names.clone();
             if let Ok(path) = std::env::var("HC16_SYMCTX") {
                 dump_sym_ctx(&obj, &lines, &path);
             }
@@ -147,6 +151,7 @@ pub fn assemble_source_in(src: &str, base_dir: Option<&Path>) -> Object {
     let mut obj = run_pass(&lines, &symbols, &def_line, Sizing::Use(&widths));
     obj.data = fill_sections(&obj.data, &obj.org_targets);
     obj.sym_order = order_symbols(&obj.symbols, &lines);
+    obj.macros = macro_names;
     obj.diagnostics
         .push(Diagnostic::warning("assembly did not converge (possible phase error)"));
     obj
@@ -391,17 +396,18 @@ fn needs_wide(expr: &str, cur_line: u32, def_line: &HashMap<String, usize>) -> b
 
 /// Expand `include` files and macros into a flat line list. These are textual
 /// transforms independent of assembly state, so they run once.
-fn preprocess(raw: &[String], base: Option<&Path>) -> Result<Vec<String>, Vec<Diagnostic>> {
+fn preprocess(raw: &[String], base: Option<&Path>) -> Result<(Vec<String>, Vec<String>), Vec<Diagnostic>> {
     let mut diags = Vec::new();
     let included = expand_includes(raw, base, 0, &mut diags);
     if !diags.is_empty() {
         return Err(diags);
     }
-    let expanded = expand_macros(&included, &mut diags);
+    let mut macro_names = Vec::new();
+    let expanded = expand_macros(&included, &mut diags, &mut macro_names);
     if !diags.is_empty() {
         return Err(diags);
     }
-    Ok(expanded)
+    Ok((expanded, macro_names))
 }
 
 fn expand_includes(lines: &[String], base: Option<&Path>, depth: u32, diags: &mut Vec<Diagnostic>) -> Vec<String> {
@@ -435,7 +441,7 @@ fn expand_includes(lines: &[String], base: Option<&Path>, depth: u32, diags: &mu
     out
 }
 
-fn expand_macros(lines: &[String], diags: &mut Vec<Diagnostic>) -> Vec<String> {
+fn expand_macros(lines: &[String], diags: &mut Vec<Diagnostic>, names: &mut Vec<String>) -> Vec<String> {
     // Collect `NAME: macro` … `endm` definitions, removing them from the stream.
     let mut macros: HashMap<String, Vec<String>> = HashMap::new();
     let mut body: Vec<String> = Vec::new();
@@ -446,6 +452,7 @@ fn expand_macros(lines: &[String], diags: &mut Vec<Diagnostic>) -> Vec<String> {
         let op = p.op.map(|o| o.to_ascii_lowercase());
         if let Some((name, lines)) = current.as_mut() {
             if op.as_deref() == Some("endm") {
+                names.push(name.clone());
                 macros.insert(name.clone(), std::mem::take(lines));
                 current = None;
             } else {

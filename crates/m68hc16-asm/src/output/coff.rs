@@ -277,6 +277,12 @@ mod tests {
     }
 }
 
+/// `(name, vaddr)` of each section, for the listing's symbol-table section rows.
+pub fn section_list(data: &[(u32, u8)], spans: &[(u32, u32, Elem)]) -> Vec<(&'static str, u32)> {
+    let img: HashMap<u32, u8> = data.iter().copied().collect();
+    build_sections(spans, &img).into_iter().map(|s| (s.name, s.vaddr)).collect()
+}
+
 /// Partition the spans into contiguous sections (gaps separate them) and slice
 /// the filled image for each non-BSS section. Prepends the always-present empty
 /// `.bss` section 0.
