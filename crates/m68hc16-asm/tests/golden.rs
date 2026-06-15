@@ -63,15 +63,50 @@ fn discover_asm(root: &Path) -> Vec<PathBuf> {
 
 #[test]
 fn golden_fixtures() {
-    let mut total = 0usize;
+    let (mut total, mut checked) = (0usize, 0usize);
     for root in fixture_roots() {
         for asm in discover_asm(&root) {
             total += 1;
-            // TODO(step 2+): run assemble() and byte-diff against siblings.
-            let _ = asm;
+            // A `.bytes` sibling (space-separated hex of the MASM image) is the
+            // oracle ground truth; assemble and compare byte-for-byte.
+            let expected_path = asm.with_extension("bytes");
+            let Ok(expected_text) = fs::read_to_string(&expected_path) else {
+                continue;
+            };
+            let src = fs::read_to_string(&asm).expect("read .asm");
+            let obj = m68hc16_asm::encoder::assemble_source(&src);
+            assert!(
+                !obj.has_errors(),
+                "{}: diagnostics: {:?}",
+                asm.display(),
+                obj.diagnostics
+            );
+            let expected = parse_hex(&expected_text);
+            let actual = obj.bytes();
+            assert_eq!(
+                actual,
+                expected,
+                "{}: byte mismatch\n  actual:   {}\n  expected: {}",
+                asm.display(),
+                hex(&actual),
+                hex(&expected)
+            );
+            checked += 1;
         }
     }
     if total == 0 {
         eprintln!("golden_fixtures: no fixtures discovered (skipping)");
+    } else {
+        eprintln!("golden_fixtures: {checked}/{total} fixtures byte-checked");
     }
+}
+
+fn parse_hex(s: &str) -> Vec<u8> {
+    s.split_whitespace()
+        .map(|t| u8::from_str_radix(t, 16).expect("hex byte"))
+        .collect()
+}
+
+fn hex(b: &[u8]) -> String {
+    b.iter().map(|x| format!("{x:02X}")).collect::<Vec<_>>().join(" ")
 }

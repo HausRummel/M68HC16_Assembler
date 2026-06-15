@@ -48,8 +48,8 @@ impl AssembleResult {
     }
 }
 
-/// Assemble a single source file. Skeleton implementation: validates inputs
-/// and returns an empty result so the binaries can wire up successfully.
+/// Assemble a single source file: parse, encode, and write the `.S19` image.
+/// (Listing/map outputs follow once their writers land.)
 pub fn assemble(req: &AssembleRequest) -> AssembleResult {
     let mut result = AssembleResult::default();
 
@@ -59,13 +59,38 @@ pub fn assemble(req: &AssembleRequest) -> AssembleResult {
             .push(Diagnostic::error(format!("input file not found: {}", req.input.display())));
         return result;
     }
-
     if !req.output_dir.exists() {
         result.diagnostics.push(Diagnostic::error(format!(
             "output directory not found: {}",
             req.output_dir.display()
         )));
         return result;
+    }
+
+    let src = match std::fs::read_to_string(&req.input) {
+        Ok(s) => s,
+        Err(e) => {
+            result
+                .diagnostics
+                .push(Diagnostic::error(format!("cannot read {}: {e}", req.input.display())));
+            return result;
+        }
+    };
+
+    let obj = encoder::assemble_source(&src);
+    result.diagnostics = obj.diagnostics;
+    if result.has_errors() {
+        return result;
+    }
+
+    let stem = req.input.file_stem().and_then(|s| s.to_str()).unwrap_or("out");
+    let s19_path = req.output_dir.join(format!("{stem}.S19"));
+    let text = output::srec::write_srecords(&obj.data, &format!("{stem}.S19"));
+    match std::fs::write(&s19_path, text) {
+        Ok(()) => result.outputs.s_record = Some(s19_path),
+        Err(e) => result
+            .diagnostics
+            .push(Diagnostic::error(format!("cannot write {}: {e}", s19_path.display()))),
     }
 
     result

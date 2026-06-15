@@ -117,9 +117,28 @@ entries across 216 mnemonics.
 `IdxReg`, `ModeEntry`, `InsnDef`, and `lookup()`, with unit tests asserting key
 encodings against the oracle bytes. `cargo test -p m68hc16-asm` is green.
 
-**Next step:** the encoder (`encoder.rs`) — parse a source line, pick the mode
-from the operand shape, emit `prefix` + operand bytes per mode; then wire
-`assemble()` end-to-end and validate byte-for-byte against the oracle.
+### Assembler front end + encoder (implemented)
+
+Implemented `lexer.rs` (line splitter), `expr.rs` (Pratt evaluator: `$ % @`
+radixes, `*` location counter, symbols, `+ - * / % & | ^ << >>`), `symbols.rs`,
+and `encoder.rs` — a fixpoint multi-pass driver that resolves the addressing mode
+from the operand shape against the ISA table, emits `prefix` + operand bytes, and
+handles `org/equ/fcb/fdb/fcc/rmb/end` + labels. `output/srec.rs` writes S-records;
+`assemble()` is wired end-to-end (the CLI produces a `.S19`).
+
+Three CPU16 behaviors pinned down against the oracle and baked in:
+- **Relative displacements are taken from instruction-start + 6** (the 3-word
+  prefetch pipeline), uniformly for short/long/bit branches — not the next instr.
+- **Sections are padded to even length with a `0xFF` fill byte.**
+- Immediate and indexed modes **auto-select 8- vs 16-bit by value** (matching MASM).
+
+Validation: a 24-instruction snippet (`tests/fixtures/public/smoke.asm`) assembles
+**byte-for-byte identical** to the real MASM S19 image (`smoke.bytes`), checked by
+the `golden_fixtures` test. `cargo test` is green.
+
+**Not yet:** register-list (`pshm`/`pulm`), memory-move (`movb`/`movw`), `rmac`,
+char literals in `fcb`; macros, conditionals, includes, sections/relocation +
+linker; listing/map output; byte-exact S0/S9 record matching.
 
 ## Output formats
 

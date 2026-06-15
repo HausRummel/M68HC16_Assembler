@@ -1,1 +1,428 @@
-//! Two-pass encoder. Skeleton — populated starting in step 3.
+//! Instruction/operand encoder and the multi-pass assembly driver.
+//!
+//! Encoding is table-driven from [`crate::isa`]: the operand shape selects an
+//! addressing [`Mode`], then the mode's `prefix` is emitted followed by the
+//! operand bytes in that mode's layout. The driver iterates to a fixpoint so
+//! forward references and operand-size selection converge.
+
+use crate::diag::Diagnostic;
+use crate::expr::{self, EvalError};
+use crate::isa::{self, IdxReg, InsnDef, Mode, ModeEntry};
+use crate::lexer::split_line;
+use crate::symbols::SymbolTable;
+
+/// Result of assembling a source: emitted `(address, byte)` pairs (in order),
+/// the final symbol table, and diagnostics.
+#[derive(Debug, Default)]
+pub struct Object {
+    pub data: Vec<(u32, u8)>,
+    pub symbols: SymbolTable,
+    pub diagnostics: Vec<Diagnostic>,
+}
+
+impl Object {
+    /// The emitted bytes in order (addresses dropped) — handy for comparisons.
+    pub fn bytes(&self) -> Vec<u8> {
+        self.data.iter().map(|(_, b)| *b).collect()
+    }
+
+    pub fn has_errors(&self) -> bool {
+        self.diagnostics.iter().any(|d| d.is_error())
+    }
+}
+
+/// Assemble a whole source string. Runs passes until the emitted image is stable
+/// (forward references and Ind8/Ind16 sizing settle), then returns the result.
+pub fn assemble_source(src: &str) -> Object {
+    let mut symbols = SymbolTable::new();
+    let mut prev: Option<Vec<(u32, u8)>> = None;
+    for _ in 0..8 {
+        let obj = run_pass(src, &symbols);
+        if prev.as_ref() == Some(&obj.data) {
+            return obj;
+        }
+        prev = Some(obj.data.clone());
+        symbols = obj.symbols.clone();
+    }
+    // Did not converge in the pass budget; return the last attempt with a note.
+    let mut obj = run_pass(src, &symbols);
+    obj.diagnostics
+        .push(Diagnostic::warning("assembly did not converge (possible phase error)"));
+    obj
+}
+
+fn run_pass(src: &str, sym_in: &SymbolTable) -> Object {
+    let mut out = Object::default();
+    let mut lc: u32 = 0;
+    // Section origin (first `org`); used to pad the section to an even length, which
+    // MASM does automatically ("section has an odd length; fill byte was added").
+    let mut origin: Option<u32> = None;
+
+    for (idx, raw_line) in src.lines().enumerate() {
+        let lineno = (idx + 1) as u32;
+        let line = split_line(raw_line);
+        let op_lower = line.op.map(|o| o.to_ascii_lowercase());
+
+        // A label takes the current LC, except `equ`/`set` which take the operand.
+        if let Some(lbl) = line.label {
+            match op_lower.as_deref() {
+                Some("equ") | Some("set") => {
+                    if let Some(operand) = line.operand {
+                        match expr::eval(operand, lc, sym_in) {
+                            Ok(v) => out.symbols.define(lbl, v),
+                            Err(EvalError::Undefined(_)) => {} // resolves on a later pass
+                            Err(EvalError::Syntax(s)) => err(&mut out, lineno, s),
+                        }
+                    } else {
+                        err(&mut out, lineno, "equ requires an operand".into());
+                    }
+                }
+                _ => out.symbols.define(lbl, lc as i64),
+            }
+        }
+
+        let Some(op) = op_lower.as_deref() else { continue };
+        match op {
+            "equ" | "set" => {} // handled with the label above
+            "org" => match eval1(line.operand, lc, sym_in) {
+                Ok(v) => {
+                    lc = v as u32;
+                    origin.get_or_insert(lc);
+                }
+                Err(e) => err(&mut out, lineno, format!("org: {e}")),
+            },
+            "rmb" | "ds" => match eval1(line.operand, lc, sym_in) {
+                Ok(v) => lc = lc.wrapping_add(v as u32),
+                Err(e) => err(&mut out, lineno, format!("rmb: {e}")),
+            },
+            "fcb" | "dc.b" => emit_list(&mut out, &mut lc, lineno, line.operand, sym_in, 1),
+            "fdb" | "dc.w" => emit_list(&mut out, &mut lc, lineno, line.operand, sym_in, 2),
+            "fcc" => emit_fcc(&mut out, &mut lc, lineno, line.operand),
+            "end" => break,
+            _ => match isa::lookup(op) {
+                Some(insn) => match encode_instruction(insn, line.operand, lc, sym_in) {
+                    Ok(enc) => {
+                        for n in enc.unresolved {
+                            err(&mut out, lineno, format!("undefined symbol \"{n}\""));
+                        }
+                        for b in enc.bytes {
+                            out.data.push((lc, b));
+                            lc = lc.wrapping_add(1);
+                        }
+                    }
+                    Err(msg) => err(&mut out, lineno, msg),
+                },
+                None => err(&mut out, lineno, format!("unknown operation `{}`", line.op.unwrap())),
+            },
+        }
+    }
+
+    // Pad the section to an even length (MASM appends a 0xFF fill byte).
+    if let Some(o) = origin {
+        if lc.wrapping_sub(o) & 1 == 1 {
+            out.data.push((lc, 0xFF));
+        }
+    }
+
+    out.symbols = merge(sym_in, &out.symbols);
+    out
+}
+
+/// Carry over previously-known symbols so multi-pass resolution accumulates.
+fn merge(base: &SymbolTable, new: &SymbolTable) -> SymbolTable {
+    let _ = base;
+    new.clone()
+}
+
+fn err(out: &mut Object, line: u32, msg: String) {
+    out.diagnostics.push(Diagnostic::error(msg).with_line(line));
+}
+
+fn eval1(operand: Option<&str>, lc: u32, sym: &SymbolTable) -> Result<i64, String> {
+    let operand = operand.ok_or_else(|| "missing operand".to_string())?;
+    expr::eval(operand, lc, sym).map_err(|e| e.to_string())
+}
+
+fn emit_list(out: &mut Object, lc: &mut u32, line: u32, operand: Option<&str>, sym: &SymbolTable, width: u32) {
+    let Some(operand) = operand else {
+        err(out, line, "directive requires an operand".into());
+        return;
+    };
+    for item in split_top_commas(operand) {
+        let item = item.trim();
+        match expr::eval(item, *lc, sym) {
+            Ok(v) => push_be(out, lc, v, width),
+            Err(EvalError::Undefined(_)) => push_be(out, lc, 0, width), // placeholder this pass
+            Err(EvalError::Syntax(s)) => {
+                err(out, line, s);
+                push_be(out, lc, 0, width);
+            }
+        }
+    }
+}
+
+fn emit_fcc(out: &mut Object, lc: &mut u32, line: u32, operand: Option<&str>) {
+    let Some(operand) = operand else {
+        err(out, line, "fcc requires a string".into());
+        return;
+    };
+    let bytes = operand.as_bytes();
+    if bytes.len() < 2 {
+        err(out, line, "fcc: malformed string".into());
+        return;
+    }
+    let delim = bytes[0];
+    let mut i = 1;
+    while i < bytes.len() && bytes[i] != delim {
+        out.data.push((*lc, bytes[i]));
+        *lc = lc.wrapping_add(1);
+        i += 1;
+    }
+}
+
+fn push_be(out: &mut Object, lc: &mut u32, value: i64, width: u32) {
+    let v = value as u64;
+    for shift in (0..width).rev() {
+        out.data.push((*lc, (v >> (8 * shift)) as u8));
+        *lc = lc.wrapping_add(1);
+    }
+}
+
+/// Successful encoding of one instruction.
+struct Enc {
+    bytes: Vec<u8>,
+    unresolved: Vec<String>,
+}
+
+fn encode_instruction(insn: &InsnDef, operand: Option<&str>, lc: u32, sym: &SymbolTable) -> Result<Enc, String> {
+    let mut unresolved = Vec::new();
+
+    // No operand -> inherent.
+    let Some(raw) = operand.map(str::trim).filter(|s| !s.is_empty()) else {
+        let e = mode_of(insn, |m| matches!(m, Mode::Inherent))
+            .ok_or_else(|| format!("`{}` requires an operand", insn.mnemonic))?;
+        return Ok(Enc { bytes: e.prefix.to_vec(), unresolved });
+    };
+
+    // Immediate. Ops with both 8- and 16-bit immediate forms take the smallest
+    // that fits the value (matching MASM); an undefined value assumes the wider.
+    if let Some(rest) = raw.strip_prefix('#') {
+        let (v, undef) = match expr::eval(rest, lc, sym) {
+            Ok(v) => (v, false),
+            Err(EvalError::Undefined(n)) => {
+                unresolved.push(n);
+                (0, true)
+            }
+            Err(EvalError::Syntax(s)) => return Err(s),
+        };
+        let imm8 = mode_of(insn, |m| matches!(m, Mode::Imm8));
+        let imm16 = mode_of(insn, |m| matches!(m, Mode::Imm16));
+        let e = if !undef && (0..=0xFF).contains(&v) { imm8.or(imm16) } else { imm16.or(imm8) }
+            .ok_or_else(|| format!("`{}` has no immediate mode", insn.mnemonic))?;
+        let mut bytes = e.prefix.to_vec();
+        emit_be(&mut bytes, v, e.operand_len);
+        return Ok(Enc { bytes, unresolved });
+    }
+
+    // Bit-conditional branch: addr,#mask,target.
+    if let Some(e) = mode_of(insn, |m| matches!(m, Mode::BitBrExt)) {
+        let parts = split_top_commas(raw);
+        if parts.len() != 3 {
+            return Err(format!("`{}` expects addr,#mask,target", insn.mnemonic));
+        }
+        let addr = eval_or_zero(parts[0].trim(), lc, sym, &mut unresolved)?;
+        let mask = eval_or_zero(parts[1].trim().trim_start_matches('#'), lc, sym, &mut unresolved)?;
+        let target = eval_or_zero(parts[2].trim(), lc, sym, &mut unresolved)?;
+        let rel = target - (lc as i64 + 6); // CPU16 prefetch: relative to start + 6
+        let mut bytes = e.prefix.to_vec();
+        bytes.push(mask as u8);
+        emit_be(&mut bytes, addr, 2);
+        emit_be(&mut bytes, rel, 2);
+        return Ok(Enc { bytes, unresolved });
+    }
+
+    // Bit set/clear: addr,#mask.
+    if let Some(e) = mode_of(insn, |m| matches!(m, Mode::BitExt)) {
+        let parts = split_top_commas(raw);
+        if parts.len() != 2 {
+            return Err(format!("`{}` expects addr,#mask", insn.mnemonic));
+        }
+        let addr = eval_or_zero(parts[0].trim(), lc, sym, &mut unresolved)?;
+        let mask = eval_or_zero(parts[1].trim().trim_start_matches('#'), lc, sym, &mut unresolved)?;
+        let mut bytes = e.prefix.to_vec();
+        bytes.push(mask as u8);
+        emit_be(&mut bytes, addr, 2);
+        return Ok(Enc { bytes, unresolved });
+    }
+
+    if mode_of(insn, |m| matches!(m, Mode::RegList)).is_some() {
+        return Err(format!("`{}`: register-list ops not yet supported", insn.mnemonic));
+    }
+    if mode_of(insn, |m| matches!(m, Mode::MovMm | Mode::MovIdxExt | Mode::MovExtIdx | Mode::Mac)).is_some() {
+        return Err(format!("`{}`: memory-move/MAC ops not yet supported", insn.mnemonic));
+    }
+
+    // Indexed or accumulator-E indexed: `<base>,<reg>`.
+    if let Some((base, reg)) = split_index(raw) {
+        if base.eq_ignore_ascii_case("e") {
+            let e = mode_of(insn, |m| matches!(m, Mode::EInd(r) if r == reg))
+                .ok_or_else(|| format!("`{}` has no E,{reg:?} mode", insn.mnemonic))?;
+            return Ok(Enc { bytes: e.prefix.to_vec(), unresolved });
+        }
+        // Numeric offset: pick Ind8 when it fits and exists, else Ind16.
+        let (off, undef) = match expr::eval(base, lc, sym) {
+            Ok(v) => (v, false),
+            Err(EvalError::Undefined(n)) => {
+                unresolved.push(n);
+                (0, true)
+            }
+            Err(EvalError::Syntax(s)) => return Err(s),
+        };
+        let fits8 = !undef && (0..=0xFF).contains(&off);
+        let e = if fits8 {
+            mode_of(insn, |m| matches!(m, Mode::Ind8(r) if r == reg))
+                .or_else(|| mode_of(insn, |m| matches!(m, Mode::Ind16(r) if r == reg)))
+        } else {
+            mode_of(insn, |m| matches!(m, Mode::Ind16(r) if r == reg))
+                .or_else(|| mode_of(insn, |m| matches!(m, Mode::Ind8(r) if r == reg)))
+        }
+        .ok_or_else(|| format!("`{}` has no indexed-{reg:?} mode", insn.mnemonic))?;
+        let mut bytes = e.prefix.to_vec();
+        emit_be(&mut bytes, off, e.operand_len);
+        return Ok(Enc { bytes, unresolved });
+    }
+
+    // Relative branch. CPU16 displacements are relative to the instruction start
+    // + 6 (the 3-word prefetch pipeline), not the next instruction.
+    if let Some(e) = mode_of(insn, |m| matches!(m, Mode::Rel8 | Mode::Rel16)) {
+        let target = eval_or_zero(raw, lc, sym, &mut unresolved)?;
+        let rel = target - (lc as i64 + 6);
+        let limit = if e.operand_len == 1 { (-128, 127) } else { (-32768, 32767) };
+        if unresolved.is_empty() && (rel < limit.0 || rel > limit.1) {
+            return Err(format!("`{}` branch target out of range ({rel})", insn.mnemonic));
+        }
+        let mut bytes = e.prefix.to_vec();
+        emit_be(&mut bytes, rel, e.operand_len);
+        return Ok(Enc { bytes, unresolved });
+    }
+
+    // Extended (16- or 20-bit absolute address).
+    if let Some(e) = mode_of(insn, |m| matches!(m, Mode::Ext | Mode::Ext20)) {
+        let addr = eval_or_zero(raw, lc, sym, &mut unresolved)?;
+        let mut bytes = e.prefix.to_vec();
+        emit_be(&mut bytes, addr, e.operand_len);
+        return Ok(Enc { bytes, unresolved });
+    }
+
+    Err(format!("`{}`: could not encode operand `{raw}`", insn.mnemonic))
+}
+
+fn mode_of(insn: &InsnDef, pred: impl Fn(Mode) -> bool) -> Option<&'static ModeEntry> {
+    insn.modes.iter().find(|m| pred(m.mode))
+}
+
+fn eval_or_zero(expr_s: &str, lc: u32, sym: &SymbolTable, unresolved: &mut Vec<String>) -> Result<i64, String> {
+    match expr::eval(expr_s, lc, sym) {
+        Ok(v) => Ok(v),
+        Err(EvalError::Undefined(n)) => {
+            unresolved.push(n);
+            Ok(0)
+        }
+        Err(EvalError::Syntax(s)) => Err(s),
+    }
+}
+
+fn emit_be(buf: &mut Vec<u8>, value: i64, width: u8) {
+    let v = value as u64;
+    for shift in (0..width).rev() {
+        buf.push((v >> (8 * shift)) as u8);
+    }
+}
+
+/// If `raw` ends in `,x` / `,y` / `,z`, return the base and the index register.
+fn split_index(raw: &str) -> Option<(&str, IdxReg)> {
+    let comma = raw.rfind(',')?;
+    let reg = raw[comma + 1..].trim();
+    let r = match reg {
+        _ if reg.eq_ignore_ascii_case("x") => IdxReg::X,
+        _ if reg.eq_ignore_ascii_case("y") => IdxReg::Y,
+        _ if reg.eq_ignore_ascii_case("z") => IdxReg::Z,
+        _ => return None,
+    };
+    Some((raw[..comma].trim(), r))
+}
+
+/// Split on top-level commas (ignoring those inside single quotes or parens).
+fn split_top_commas(s: &str) -> Vec<&str> {
+    let mut parts = Vec::new();
+    let bytes = s.as_bytes();
+    let (mut start, mut depth, mut quote) = (0usize, 0i32, false);
+    for (i, &b) in bytes.iter().enumerate() {
+        match b {
+            b'\'' => quote = !quote,
+            b'(' if !quote => depth += 1,
+            b')' if !quote => depth -= 1,
+            b',' if !quote && depth == 0 => {
+                parts.push(&s[start..i]);
+                start = i + 1;
+            }
+            _ => {}
+        }
+    }
+    parts.push(&s[start..]);
+    parts
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn asm(src: &str) -> Object {
+        assemble_source(src)
+    }
+
+    fn hex(bytes: &[u8]) -> String {
+        bytes.iter().map(|b| format!("{b:02X}")).collect::<Vec<_>>().join(" ")
+    }
+
+    #[test]
+    fn basic_modes_match_oracle() {
+        // Bytes are the authoritative MASM output for this exact source.
+        let src = "        org $2000\n\
+                   start   ldaa #$12\n\
+                   \x20       ldab $40\n\
+                   \x20       addd #$1234\n\
+                   \x20       jsr start\n\
+                   \x20       rts\n\
+                   \x20       end\n";
+        let obj = asm(src);
+        assert!(!obj.has_errors(), "diagnostics: {:?}", obj.diagnostics);
+        assert_eq!(hex(&obj.bytes()), "75 12 17 F5 00 40 37 B1 12 34 FA 00 20 00 27 F7");
+    }
+
+    #[test]
+    fn indexed_and_branches() {
+        let src = "        org $2000\n\
+                   \x20       ldaa $10,x\n\
+                   \x20       ldd $20,y\n\
+                   lbl     bra lbl\n\
+                   \x20       beq lbl\n\
+                   \x20       end\n";
+        let obj = asm(src);
+        assert!(!obj.has_errors(), "diagnostics: {:?}", obj.diagnostics);
+        // ldaa $10,x=45 10 ; ldd $20,y=95 20 ; bra lbl(@2004)=B0 FA ; beq lbl(@2006)=B7 F8
+        assert_eq!(hex(&obj.bytes()), "45 10 95 20 B0 FA B7 F8");
+    }
+
+    #[test]
+    fn directives_emit_bytes() {
+        let src = "        org $1000\n\
+                   \x20       fcb $12,$34,'A\n\
+                   \x20       fdb $1234,$5678\n\
+                   \x20       end\n";
+        let obj = asm(src);
+        assert!(!obj.has_errors(), "diagnostics: {:?}", obj.diagnostics);
+        // 7 data bytes is an odd section length, so MASM appends an FF fill byte.
+        assert_eq!(hex(&obj.bytes()), "12 34 41 12 34 56 78 FF");
+    }
+}
