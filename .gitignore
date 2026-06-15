@@ -32,3 +32,8 @@ out_diag/
 *.swp
 .DS_Store
 Thumbs.db
+
+# RE scratch / regenerable artifacts
+tools/oracle/masm_flat.bin
+tools/oracle/decomp_out.txt
+tools/oracle/__pycache__/
