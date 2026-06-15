@@ -120,6 +120,9 @@ pub fn assemble_source_in(src: &str, base_dir: Option<&Path>) -> Object {
             // the final image (MASM/HEX behaviour) only after the layout settles.
             obj.data = fill_sections(&obj.data, &obj.org_targets);
             obj.sym_order = order_symbols(&obj.symbols, &lines);
+            if let Ok(path) = std::env::var("HC16_SYMCTX") {
+                dump_sym_ctx(&obj, &lines, &path);
+            }
             if let Ok(path) = std::env::var("HC16_SYMS") {
                 use std::fmt::Write as _;
                 let mut s = String::new();
@@ -185,6 +188,79 @@ fn order_symbols(symbols: &SymbolTable, lines: &[String]) -> Vec<(String, Option
         .collect();
     out.sort();
     out.into_iter().map(|(_, n, ctx)| (n, ctx)).collect()
+}
+
+/// Debug dump (env `HC16_SYMCTX`): one row per program symbol with the contexts
+/// that could drive the COFF `type`, so the rule can be derived against the gold
+/// OBJ. Columns: name, value(hex), kind, first-occ op, defining-line op,
+/// element-at-address, whether referenced by any fdb / any fcb.
+fn dump_sym_ctx(obj: &Object, lines: &[String], path: &str) {
+    use std::fmt::Write as _;
+    let def_line = definition_lines(lines);
+    // first-occurrence op string + whether that first occurrence was as the
+    // symbol's own label (definition) or as an operand (reference); + fdb/fcb refs.
+    let mut first_op: HashMap<String, String> = HashMap::new();
+    let mut first_lbl: HashMap<String, bool> = HashMap::new();
+    let mut fdb_ref: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut fcb_ref: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for line in lines {
+        let p = split_line(line);
+        let opl = p.op.map(|s| s.to_ascii_lowercase()).unwrap_or_default();
+        let mut note = |name: &str, as_label: bool| {
+            if seen.insert(name.to_string()) {
+                first_op.insert(name.to_string(), opl.clone());
+                first_lbl.insert(name.to_string(), as_label);
+            }
+        };
+        if let Some(lbl) = p.label {
+            note(lbl, true);
+        }
+        if let Some(operand) = p.operand {
+            for id in identifiers(operand) {
+                note(id, false);
+                if opl == "fdb" || opl == "dc.w" {
+                    fdb_ref.insert(id.to_string());
+                } else if opl == "fcb" || opl == "dc.b" || opl == "fcc" {
+                    fcb_ref.insert(id.to_string());
+                }
+            }
+        }
+    }
+    let addr_elem: HashMap<u32, Elem> =
+        HashMap::from_iter(obj.spans.iter().map(|&(a, _, k)| (a, k)));
+    let es = |e: Option<Elem>| match e {
+        Some(Elem::Word) => "W",
+        Some(Elem::Byte) => "B",
+        Some(Elem::Reserve) => "R",
+        Some(Elem::Code) => "C",
+        None => "-",
+    };
+    let mut s = String::new();
+    let _ = writeln!(s, "name\tvalue\tkind\tfirst_e\tflbl\tdef_e\tdef_op\taddr_e\tfdb\tfcb");
+    for (name, value) in obj.symbols.iter() {
+        let kind_s = match obj.symbols.get_full(name).map(|(_, k)| k) {
+            Some(Kind::Abs) => "Abs",
+            Some(Kind::Rel) => "Rel",
+            None => "?",
+        };
+        let first_e = es(first_op.get(name).and_then(|o| op_elem(Some(o))));
+        let flbl = first_lbl.get(name).copied().unwrap_or(false) as u8;
+        let dop = def_line
+            .get(name)
+            .and_then(|&l| lines.get(l - 1))
+            .map(|ln| split_line(ln).op.map(|s| s.to_ascii_lowercase()).unwrap_or_default())
+            .unwrap_or_default();
+        let def_e = es(op_elem(Some(&dop)));
+        let ae = es(addr_elem.get(&(value as u32)).copied());
+        let _ = writeln!(
+            s,
+            "{name}\t{value:X}\t{kind_s}\t{first_e}\t{flbl}\t{def_e}\t{dop}\t{ae}\t{}\t{}",
+            fdb_ref.contains(name) as u8,
+            fcb_ref.contains(name) as u8,
+        );
+    }
+    let _ = std::fs::write(path, s);
 }
 
 /// The element width of an op: `fdb`->Word, byte directives->Byte, `rmb`->Reserve,
