@@ -21,6 +21,7 @@
 //! before lowercase), then a `N symbols` footer counting sections + program syms.
 
 use crate::encoder::{LineEmit, ListLine};
+use crate::isa;
 use crate::lexer::split_line;
 use crate::symbols::{Kind, SymbolTable};
 
@@ -265,8 +266,11 @@ pub fn listing(
     let (mut out, page_no) = paginate_body(list_lines, line_emit, opts);
     let title = last_ttl(list_lines).unwrap_or_default();
     let rows = symbol_rows(symbols, macros, sections);
-    let (sym, _page_no) = paginate_symbols(&rows, opts, &title, page_no);
+    let (sym, page_no) = paginate_symbols(&rows, opts, &title, page_no);
     out.push_str(&sym);
+    append_xref(&mut out, list_lines, line_emit, symbols, macros, &title, opts, page_no);
+    // MASM ends the listing with one trailing blank line.
+    out.push_str("\r\n");
     out
 }
 
@@ -289,6 +293,199 @@ fn paginate_symbols(rows: &[String], opts: &PageOpts, title: &str, mut page_no: 
         out.push_str("\r\n");
     }
     out.push_str(&format!("\r\n{} symbols\r\n", rows.len()));
+    (out, page_no)
+}
+
+/// Append the Cross-Reference Table to a full listing: for every program symbol
+/// and macro (ASCII-sorted, no section symbols), the definition + reference lines.
+fn append_xref(
+    out: &mut String,
+    list_lines: &[ListLine],
+    line_emit: &[LineEmit],
+    symbols: &SymbolTable,
+    macros: &[String],
+    title: &str,
+    opts: &PageOpts,
+    page_no: usize,
+) {
+    let rows = xref_rows(list_lines, line_emit, symbols, macros);
+    let (x, _) = paginate_xref(&rows, opts, title, page_no);
+    out.push_str(&x);
+}
+
+/// One Cross-Reference entry: symbol name and its `(line, is_def)` entries sorted
+/// descending. The def line renders with `@`; a macro has no def (only invocation
+/// references). MASM counts each *occurrence* and lists the def even when the
+/// symbol is also referenced on its own def line (`26204 @26204`).
+struct XrefRow {
+    name: String,
+    entries: Vec<(u32, bool)>,
+}
+
+/// Collect each symbol's definition and reference Abs lines. A reference is a
+/// symbol identifier in the OPERAND of an assembled line (each occurrence, at that
+/// line's Abs); a macro is referenced where it is invoked (the op field of the
+/// invocation line). Inherent (no-operand) instructions are skipped — their
+/// "operand" field is actually a comment. Section symbols are excluded.
+fn xref_rows(list_lines: &[ListLine], line_emit: &[LineEmit], symbols: &SymbolTable, macros: &[String]) -> Vec<XrefRow> {
+    use std::collections::{HashMap, HashSet};
+    let symset: HashSet<&str> = symbols.iter().map(|(n, _)| n.as_str()).collect();
+    let macroset: HashSet<&str> = macros.iter().map(String::as_str).collect();
+    // def value = (Abs, is_instruction). For a symbol referenced on its own def
+    // line, MASM orders a data-directive def before the ref but an instruction def
+    // after it; the flag drives that tiebreak.
+    let mut def: HashMap<&str, (u32, bool)> = HashMap::new();
+    let mut refs: HashMap<&str, Vec<u32>> = HashMap::new();
+
+    let mut asm_idx = 0usize;
+    for (i, ll) in list_lines.iter().enumerate() {
+        let abs = (i + 1) as u32;
+        // Whether MASM actually assembled this line (not a false-conditional skip).
+        let processed = if ll.assembled {
+            let pr = line_emit.get(asm_idx).map(|e| e.processed).unwrap_or(true);
+            asm_idx += 1;
+            pr
+        } else {
+            false
+        };
+        let p = split_line(&ll.text);
+        if let Some(lbl) = p.label {
+            if let Some(&canon) = symset.get(lbl) {
+                let is_instr = p.op.is_some_and(|o| isa::lookup(o).is_some());
+                def.entry(canon).or_insert((abs, is_instr));
+            }
+        }
+        if let Some(op) = p.op {
+            if let Some(&canon) = macroset.get(op) {
+                // The invocation references the macro; its args are re-referenced
+                // in the (assembled) expansion, so don't also scan the operand.
+                refs.entry(canon).or_default().push(abs);
+                continue;
+            }
+            // An inherent instruction takes no operand: the field is a comment.
+            if isa::lookup(op).is_some_and(|d| d.modes.iter().all(|m| m.mode == isa::Mode::Inherent)) {
+                continue;
+            }
+        }
+        if processed {
+            if let Some(operand) = p.operand {
+                for id in operand_idents(operand) {
+                    if let Some(&canon) = symset.get(id) {
+                        refs.entry(canon).or_default().push(abs);
+                    }
+                }
+            }
+        }
+    }
+
+    let mut names: Vec<&str> = symset.iter().copied().chain(macroset.iter().copied()).collect();
+    names.sort_unstable();
+    names
+        .into_iter()
+        .map(|name| {
+            // (line, tiebreak rank, is_def): for an equal line, a data-directive
+            // def (0) sorts before refs (1), an instruction def (2) after them.
+            let mut e: Vec<(u32, u8, bool)> =
+                refs.get(name).map(|v| v.iter().map(|&l| (l, 1u8, false)).collect()).unwrap_or_default();
+            if let Some(&(dv, is_instr)) = def.get(name) {
+                e.push((dv, if is_instr { 2 } else { 0 }, true));
+            }
+            e.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
+            let entries = e.into_iter().map(|(l, _, d)| (l, d)).collect();
+            XrefRow { name: name.to_string(), entries }
+        })
+        .collect()
+}
+
+/// Symbol-naming identifiers in an operand: skips `$hex`, `%bin`, decimal numbers,
+/// and `'c'` char literals so their letters/digits are not mistaken for names.
+fn operand_idents(operand: &str) -> Vec<&str> {
+    let b = operand.as_bytes();
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < b.len() {
+        match b[i] {
+            b'$' => {
+                i += 1;
+                while i < b.len() && b[i].is_ascii_hexdigit() {
+                    i += 1;
+                }
+            }
+            b'%' => {
+                i += 1;
+                while i < b.len() && (b[i] == b'0' || b[i] == b'1') {
+                    i += 1;
+                }
+            }
+            b'\'' => {
+                i += 1;
+                while i < b.len() && b[i] != b'\'' {
+                    i += 1;
+                }
+                i += usize::from(i < b.len());
+            }
+            b'"' => {
+                i += 1;
+                while i < b.len() && b[i] != b'"' {
+                    i += 1;
+                }
+                i += usize::from(i < b.len());
+            }
+            b'0'..=b'9' => {
+                while i < b.len() && b[i].is_ascii_alphanumeric() {
+                    i += 1;
+                }
+            }
+            b'A'..=b'Z' | b'a'..=b'z' | b'_' => {
+                let s = i;
+                while i < b.len() && (b[i].is_ascii_alphanumeric() || b[i] == b'_') {
+                    i += 1;
+                }
+                out.push(&operand[s..i]);
+            }
+            _ => i += 1,
+        }
+    }
+    out
+}
+
+/// Paginate the Cross-Reference rows under MASM's 4-line headers. The `Cross
+/// Reference Table:` intro prints once on the first page (and counts toward the
+/// page). Each symbol's lines render at most 11 per physical row: the first as
+/// `{name:<15}\t {…}`, continuations as `\t\t {…}`; the def line carries `@`. A
+/// page holds `plen - 6` content lines (breaks may fall mid-symbol).
+fn paginate_xref(rows: &[XrefRow], opts: &PageOpts, title: &str, mut page_no: usize) -> (String, usize) {
+    let budget = opts.plen.saturating_sub(HEADER_LINES); // 54
+    let mut out = String::new();
+    let mut content = budget; // force a header before the first line
+    let mut first_page = true;
+    for r in rows {
+        let toks: Vec<String> = r
+            .entries
+            .iter()
+            .map(|&(l, is_def)| if is_def { format!("@{l}") } else { format!("{l}") })
+            .collect();
+        for (ci, chunk) in toks.chunks(11).enumerate() {
+            let line = if ci == 0 {
+                format!("{:<15}\t {}", r.name, chunk.join(" "))
+            } else {
+                format!("\t\t {}", chunk.join(" "))
+            };
+            if content >= budget {
+                page_no += 1;
+                out.push_str(&page_header(page_no, opts.top_file, title, opts.timestamp, false));
+                content = 0;
+                if first_page {
+                    // The intro is extra — it does not count toward the row budget.
+                    out.push_str("Cross Reference Table:\r\n\r\n");
+                    first_page = false;
+                }
+            }
+            out.push_str(&line);
+            out.push_str("\r\n");
+            content += 1;
+        }
+    }
     (out, page_no)
 }
 
@@ -470,6 +667,28 @@ mod tests {
         assert!(out.contains("Page 11") && out.contains("Page 13"));
         assert!(!out.contains("Abs. Rel.")); // no body column header in symtab pages
         assert!(out.ends_with("\r\n5 symbols\r\n"));
+    }
+
+    #[test]
+    fn operand_idents_skips_numeric_and_string_literals() {
+        assert_eq!(super::operand_idents("$10,x"), vec!["x"]); // $hex skipped
+        assert_eq!(super::operand_idents("PAGE(PART_NUMBER)"), vec!["PAGE", "PART_NUMBER"]);
+        assert!(super::operand_idents("#$3E").is_empty()); // hex digits not idents
+        assert_eq!(super::operand_idents("MODE-$F0000+7,MODE2"), vec!["MODE", "MODE2"]);
+        assert!(super::operand_idents("\"boundary at FOO\"").is_empty()); // double-quoted
+        assert!(super::operand_idents("'A'").is_empty()); // char literal
+    }
+
+    #[test]
+    fn xref_wraps_at_11_and_marks_def() {
+        // 13 lines, descending 12..0, the def at value 5.
+        let entries: Vec<(u32, bool)> = (0..13u32).rev().map(|v| (v, v == 5)).collect();
+        let row = super::XrefRow { name: "FOO".to_string(), entries };
+        let opts = super::PageOpts { top_file: "IN.ASM", timestamp: "TS ", plen: 60 };
+        let (out, _) = super::paginate_xref(&[row], &opts, "T", 0);
+        let body: Vec<&str> = out.trim_end().split("\r\n").skip(4 + 2).collect(); // header + intro
+        assert_eq!(body[0], "FOO            \t 12 11 10 9 8 7 6 @5 4 3 2"); // 11 entries, @ on def
+        assert_eq!(body[1], "\t\t 1 0"); // continuation has the remaining 2
     }
 
     #[test]

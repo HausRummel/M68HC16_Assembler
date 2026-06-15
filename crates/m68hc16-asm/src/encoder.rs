@@ -72,6 +72,11 @@ pub struct LineEmit {
     /// two words, MASM repeats `Abs`+`Rel` on a data directive's continuation
     /// rows but blanks `Rel` on an instruction's.
     pub is_data: bool,
+    /// True unless this line was skipped by a false conditional. The
+    /// Cross-Reference Table only counts symbol references on lines MASM actually
+    /// assembled, so a `PAGE`/operand in a non-taken `ifgt`/`elsec` branch is not
+    /// a reference.
+    pub processed: bool,
 }
 
 /// One source line in the `.LST` listing stream (see [`Object::list_lines`]).
@@ -742,6 +747,8 @@ fn run_pass(lines: &[String], sym_in: &SymbolTable, def_line: &HashMap<String, u
         let lineno = (idx + 1) as u32;
         let line = split_line(raw_line);
         let op_lower = line.op.map(|o| o.to_ascii_lowercase());
+        // Assume processed; the false-conditional skip below clears it.
+        out.line_emit[idx].processed = true;
 
         // Conditional assembly: keep the stack balanced even in skipped regions.
         if let Some(op) = op_lower.as_deref() {
@@ -766,6 +773,7 @@ fn run_pass(lines: &[String], sym_in: &SymbolTable, def_line: &HashMap<String, u
             }
         }
         if !cond_emitting(&cond_stack) {
+            out.line_emit[idx].processed = false;
             continue;
         }
 
