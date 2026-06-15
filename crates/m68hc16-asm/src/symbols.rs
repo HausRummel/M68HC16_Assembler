@@ -27,6 +27,10 @@ impl SymbolTable {
         self.map.contains_key(name)
     }
 
+    pub fn iter(&self) -> impl Iterator<Item = (&String, &i64)> {
+        self.map.iter()
+    }
+
     pub fn len(&self) -> usize {
         self.map.len()
     }

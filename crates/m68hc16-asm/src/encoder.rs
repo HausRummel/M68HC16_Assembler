@@ -57,6 +57,14 @@ pub fn assemble_source_in(src: &str, base_dir: Option<&Path>) -> Object {
     for _ in 0..40 {
         let obj = run_pass(&lines, &symbols);
         if prev.as_ref() == Some(&obj.data) {
+            if let Ok(path) = std::env::var("HC16_SYMS") {
+                use std::fmt::Write as _;
+                let mut s = String::new();
+                for (k, v) in obj.symbols.iter() {
+                    let _ = writeln!(s, "{k}\t{v:X}");
+                }
+                let _ = std::fs::write(&path, s);
+            }
             return obj;
         }
         prev = Some(obj.data.clone());

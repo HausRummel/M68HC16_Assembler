@@ -187,11 +187,30 @@ layout produced thousands of spurious branch-range errors).
 **The full top-level corpus file now assembles with 0 diagnostics** and emits a
 ~473 KB S-record image.
 
-**Not yet — byte-exact validation:** the existing reference `.S19` looks stale, so
-the next step is a *fresh* oracle build of the current top file (run MASM over the
-whole include tree in DOSBox) and a data-byte diff. Then: sections/relocation +
-linker (the `*sct`/`x*` no-ops are placeholders, which likely matters for exactness),
-listing/map output, byte-exact S0/S9 record formatting, even-address-code diagnostic.
+### Byte-exact diagnosis (root cause found)
+
+A *fresh* oracle build of the current top file (MASM over the whole include tree in
+DOSBox) confirms the reference image is authentic (429,492-byte S19, identical size
+to the committed one). Our output assembles with **0 errors** and our
+absolute-symbol addresses match MASM exactly — but the image is **not** byte-exact:
+~88% of shared bytes differ, from accumulating layout drift.
+
+Root cause (precisely diagnosed): MASM uses **16-bit indexed addressing for
+relocatable (section-label) offsets even when the value fits 8 bits**, while we
+shrink to 8-bit by value. E.g. `LDAA CLTEMP-RB,Z` (CLTEMP is a RAM label, offset
+`0x91`) → MASM `17 65 0091` (Ind16); we emit `65 91` (Ind8). Absolute offsets (`equ`
+constants, literals) size by value identically in both. The `-RB,Z` SRAM convention
+is pervasive, so each shrink loses 2 bytes and the layout drifts (vectors/pointers
+then mis-resolve). `HC16_SYMS=<file>` dumps our symbol table for comparison vs the
+MASM listing.
+
+**Fix path (next):** track symbol *kind* — labels are relocatable; `equ`/`set` to a
+constant are absolute (propagate through expressions) — and force the wide indexed
+(and likely immediate/extended) form whenever an operand expression involves a
+relocatable symbol. This is the absolute-vs-relocatable half of section/relocation
+semantics, and is what stands between "assembles cleanly" and "byte-exact".
+
+Then: full sections/relocation + linker, listing/map output, byte-exact S0/S9.
 
 ## Output formats
 
