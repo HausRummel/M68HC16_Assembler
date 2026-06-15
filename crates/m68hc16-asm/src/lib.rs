@@ -19,6 +19,11 @@ pub mod symbols;
 
 use diag::Diagnostic;
 
+/// The per-page timestamp MASM writes into `.LST` headers is wall-clock at
+/// generation time, so it is non-deterministic. We stamp one fixed value; like
+/// the OBJ timestamp it is the only `.LST` field that cannot match a given run.
+const LST_TIMESTAMP: &str = "Mon Jun 15 09:39:05 ";
+
 /// Inputs and configuration for a single assembler run.
 #[derive(Debug, Clone)]
 pub struct AssembleRequest {
@@ -98,9 +103,27 @@ pub fn assemble(req: &AssembleRequest) -> AssembleResult {
             .push(Diagnostic::error(format!("cannot write {}: {e}", obj_path.display())));
     }
 
+    // Paginated assembly listing (`.LST`): body + Symbol Table under MASM's page
+    // headers. The header filename is the input name and the per-page timestamp is
+    // wall-clock in MASM (non-deterministic) — we stamp one fixed value.
+    let lst_path = req.output_dir.join(format!("{stem}.LST"));
+    let top_file = req.input.file_name().and_then(|s| s.to_str()).unwrap_or("IN.ASM");
+    let secs = output::coff::section_list(&obj.data, &obj.spans);
+    let opts = output::listing::PageOpts {
+        top_file,
+        timestamp: LST_TIMESTAMP,
+        plen: output::listing::page_length(&obj.list_lines),
+    };
+    let lst = output::listing::listing(&obj.list_lines, &obj.line_emit, &obj.symbols, &obj.macros, &secs, &opts);
+    match std::fs::write(&lst_path, output::encode_latin1(&lst)) {
+        Ok(()) => result.outputs.listing = Some(lst_path),
+        Err(e) => result
+            .diagnostics
+            .push(Diagnostic::error(format!("cannot write {}: {e}", lst_path.display()))),
+    }
+
     // Dev validation hook: dump the listing's Symbol Table block (env HC16_LST).
     if let Ok(path) = std::env::var("HC16_LST") {
-        let secs = output::coff::section_list(&obj.data, &obj.spans);
         let _ = std::fs::write(&path, output::listing::symbol_table(&obj.symbols, &obj.macros, &secs));
     }
     // Dev validation hook: dump the listing body (env HC16_LSTBODY).
@@ -108,17 +131,17 @@ pub fn assemble(req: &AssembleRequest) -> AssembleResult {
         let body = output::listing::body(&obj.list_lines, &obj.line_emit);
         let _ = std::fs::write(&path, output::encode_latin1(&body));
     }
-    // Dev validation hook: dump the paginated body (env HC16_LSTPAGE). Uses the
-    // oracle's top-file name and a fixed timestamp; the real per-page timestamp is
-    // non-deterministic (wall-clock), so comparisons normalise it.
-    if let Ok(path) = std::env::var("HC16_LSTPAGE") {
-        let opts = output::listing::PageOpts {
-            top_file: "IN.ASM",
-            timestamp: "Mon Jun 15 09:39:05 ",
-            plen: 60,
+    // Dev validation hooks: dump the paginated body / full listing with the oracle's
+    // top-file name + a fixed timestamp (the real per-page timestamp is wall-clock,
+    // so comparisons normalise it).
+    if let Ok(path) = std::env::var("HC16_LSTPAGE").or_else(|_| std::env::var("HC16_LSTFULL")) {
+        let oracle_opts = output::listing::PageOpts { top_file: "IN.ASM", timestamp: LST_TIMESTAMP, plen: 60 };
+        let text = if std::env::var("HC16_LSTFULL").is_ok() {
+            output::listing::listing(&obj.list_lines, &obj.line_emit, &obj.symbols, &obj.macros, &secs, &oracle_opts)
+        } else {
+            output::listing::paginate_body(&obj.list_lines, &obj.line_emit, &oracle_opts).0
         };
-        let page = output::listing::paginate_body(&obj.list_lines, &obj.line_emit, &opts);
-        let _ = std::fs::write(&path, output::encode_latin1(&page));
+        let _ = std::fs::write(&path, output::encode_latin1(&text));
     }
 
     let s19_path = req.output_dir.join(format!("{stem}.S19"));

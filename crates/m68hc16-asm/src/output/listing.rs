@@ -191,7 +191,9 @@ const HEADER_WIDTH: usize = 79;
 /// page headers. `PAGE` directives force a break, `TTL` sets the running title, the
 /// header filename tracks the current include, and a page breaks after `plen`
 /// printed lines. (Everything is deterministic except the per-page timestamp.)
-pub fn paginate_body(list_lines: &[ListLine], line_emit: &[LineEmit], opts: &PageOpts) -> String {
+/// Returns the appended text and the final page number (so following sections —
+/// the Symbol Table, Cross-Reference — continue the numbering).
+pub fn paginate_body(list_lines: &[ListLine], line_emit: &[LineEmit], opts: &PageOpts) -> (String, usize) {
     let mut out = String::new();
     let mut asm_idx = 0usize;
     let mut page_no = 0usize;
@@ -238,7 +240,7 @@ pub fn paginate_body(list_lines: &[ListLine], line_emit: &[LineEmit], opts: &Pag
         for row in line_rows(i + 1, ll.rel, ll.depth, emit, &ll.text) {
             if pending_break || lines_on_page >= opts.plen {
                 page_no += 1;
-                out.push_str(&page_header(page_no, &cur_file, &title, opts.timestamp));
+                out.push_str(&page_header(page_no, &cur_file, &title, opts.timestamp, true));
                 lines_on_page = HEADER_LINES;
                 pending_break = false;
             }
@@ -247,24 +249,83 @@ pub fn paginate_body(list_lines: &[ListLine], line_emit: &[LineEmit], opts: &Pag
         }
     }
     out.push_str(&body_footer(list_lines.len()));
+    (out, page_no)
+}
+
+/// Render the full paginated `.LST`: the body, then the Symbol Table, under one
+/// continuous page numbering. (The Cross-Reference Table will append here too.)
+pub fn listing(
+    list_lines: &[ListLine],
+    line_emit: &[LineEmit],
+    symbols: &SymbolTable,
+    macros: &[String],
+    sections: &[(&str, u32)],
+    opts: &PageOpts,
+) -> String {
+    let (mut out, page_no) = paginate_body(list_lines, line_emit, opts);
+    let title = last_ttl(list_lines).unwrap_or_default();
+    let rows = symbol_rows(symbols, macros, sections);
+    let (sym, _page_no) = paginate_symbols(&rows, opts, &title, page_no);
+    out.push_str(&sym);
     out
 }
 
-/// One page-header block (6 lines, CRLF), led by a form-feed except on page 1.
-fn page_header(page_no: usize, file: &str, title: &str, timestamp: &str) -> String {
+/// Paginate the Symbol Table rows under MASM's 4-line page headers (no `Abs. Rel.`
+/// column row). The `Symbol Table:` + column intro prints once on the first symtab
+/// page; the `N symbols` tally closes the last. Page numbering continues from
+/// `page_no` (the body's final page). Returns the text and the final page number.
+fn paginate_symbols(rows: &[String], opts: &PageOpts, title: &str, mut page_no: usize) -> (String, usize) {
+    let rows_per_page = opts.plen.saturating_sub(HEADER_LINES); // 54
+    let mut out = String::new();
+    for (i, r) in rows.iter().enumerate() {
+        if i % rows_per_page == 0 {
+            page_no += 1;
+            out.push_str(&page_header(page_no, opts.top_file, title, opts.timestamp, false));
+            if i == 0 {
+                out.push_str(&format!("Symbol Table:\r\n\r\n{SYM_COLHDR}\r\n{SYM_DASHES}\r\n"));
+            }
+        }
+        out.push_str(r);
+        out.push_str("\r\n");
+    }
+    out.push_str(&format!("\r\n{} symbols\r\n", rows.len()));
+    (out, page_no)
+}
+
+/// The page length from a `PLEN n` directive (lines per page), defaulting to 60.
+pub fn page_length(list_lines: &[ListLine]) -> usize {
+    list_lines
+        .iter()
+        .filter(|l| l.assembled)
+        .find_map(|l| {
+            let p = split_line(&l.text);
+            if p.op.map(|o| o.eq_ignore_ascii_case("plen")).unwrap_or(false) {
+                p.operand.and_then(|o| o.trim().parse::<usize>().ok())
+            } else {
+                None
+            }
+        })
+        .unwrap_or(60)
+}
+
+/// A page-header block (CRLF), led by a form-feed except on page 1: banner with a
+/// right-justified `Page N`, the file/timestamp line, the title, and a blank line.
+/// The body adds the two column-header rows (`columns = true`); the Symbol Table
+/// and Cross-Reference sections do not.
+fn page_header(page_no: usize, file: &str, title: &str, timestamp: &str, columns: bool) -> String {
     const BANNER: &str = "Copyright 1993, Motorola Macro Assembler   Version 4.6";
     let page = format!("Page {page_no}");
     let pad = HEADER_WIDTH.saturating_sub(BANNER.len() + page.len());
     let ff = if page_no == 1 { "" } else { "\x0c" };
-    format!(
-        "{ff}{BANNER}{:pad$}{page}\r\n\
-         68HC16 - {file} - {timestamp}\r\n\
-         {title}\r\n\
-         \r\n\
-         Abs. Rel.   Loc    Obj. code   Source line\r\n\
-         ---- ----   ------ ---------   -----------\r\n",
+    let mut h = format!(
+        "{ff}{BANNER}{:pad$}{page}\r\n68HC16 - {file} - {timestamp}\r\n{title}\r\n\r\n",
         "",
-    )
+    );
+    if columns {
+        h.push_str("Abs. Rel.   Loc    Obj. code   Source line\r\n");
+        h.push_str("---- ----   ------ ---------   -----------\r\n");
+    }
+    h
 }
 
 /// The value of the last `TTL` directive in the source (the title MASM carries
@@ -293,50 +354,62 @@ fn include_name(text: &str) -> String {
         .to_string()
 }
 
-/// Render the Symbol Table block (no surrounding page headers). `sections` is the
-/// `(name, vaddr)` of each emitted section in MASM symbol-table order; `macros`
-/// the names of every defined macro (listed with attrib `macro`, no value).
-pub fn symbol_table(symbols: &SymbolTable, macros: &[String], sections: &[(&str, u32)]) -> String {
-    let mut out = String::new();
-    out.push_str("Symbol Table:\n\n");
-    out.push_str("symbol name       attrib.   section    value\n");
-    out.push_str("-----------       -------   -------    -----\n");
+/// The Symbol Table column header and its underline (shared by the block writer
+/// and the paginated `.LST`).
+const SYM_COLHDR: &str = "symbol name       attrib.   section    value";
+const SYM_DASHES: &str = "-----------       -------   -------    -----";
 
+/// The Symbol Table entry rows, each without a line terminator: the section rows
+/// (in caller-supplied order) first, then program symbols and macros merged and
+/// ASCII byte-sorted (uppercase before lowercase). Macros carry no value.
+pub fn symbol_rows(symbols: &SymbolTable, macros: &[String], sections: &[(&str, u32)]) -> Vec<String> {
+    let mut rows = Vec::with_capacity(sections.len() + symbols.len() + macros.len());
     for (name, vaddr) in sections {
         let secnum = if *name == ".bss" { "0" } else { "249" };
-        out.push_str(&row(name, "section", secnum, *vaddr));
+        rows.push(row(name, "section", secnum, *vaddr));
     }
-
-    // Program symbols and macros share one ASCII-sorted list (uppercase before
-    // lowercase). Macros carry no value.
     let mac: std::collections::HashSet<&str> = macros.iter().map(String::as_str).collect();
     let mut names: Vec<&str> = symbols.iter().map(|(n, _)| n.as_str()).chain(mac.iter().copied()).collect();
     names.sort_unstable();
     for name in &names {
         if mac.contains(name) {
-            out.push_str(&macro_row(name));
+            rows.push(macro_row(name));
         } else {
             let (value, kind) = symbols.get_full(name).unwrap();
             let (attrib, secnum) = match kind {
                 Kind::Abs => ("abs", ""),
                 Kind::Rel => (".asct", "249"),
             };
-            out.push_str(&row(name, attrib, secnum, value as u32));
+            rows.push(row(name, attrib, secnum, value as u32));
         }
     }
+    rows
+}
 
-    out.push_str(&format!("\n{} symbols\n", sections.len() + names.len()));
+/// Render the Symbol Table block (no surrounding page headers, LF endings) — the
+/// byte-faithful name->address table other tooling needs. `sections` is the
+/// `(name, vaddr)` of each emitted section in MASM symbol-table order.
+pub fn symbol_table(symbols: &SymbolTable, macros: &[String], sections: &[(&str, u32)]) -> String {
+    let rows = symbol_rows(symbols, macros, sections);
+    let mut out = String::new();
+    out.push_str("Symbol Table:\n\n");
+    out.push_str(&format!("{SYM_COLHDR}\n{SYM_DASHES}\n"));
+    for r in &rows {
+        out.push_str(r);
+        out.push('\n');
+    }
+    out.push_str(&format!("\n{} symbols\n", rows.len()));
     out
 }
 
 fn row(name: &str, attrib: &str, section: &str, value: u32) -> String {
-    format!("{name:<16}  {attrib:<8}  {section:<9}  0x{value:08x}\n")
+    format!("{name:<16}  {attrib:<8}  {section:<9}  0x{value:08x}")
 }
 
 /// A macro's symbol-table row: name, attrib `macro`, no section/value. MASM pads
 /// the line to column 40 (one past where a value would begin).
 fn macro_row(name: &str) -> String {
-    format!("{:<40}\n", format!("{name:<16}  macro"))
+    format!("{:<40}", format!("{name:<16}  macro"))
 }
 
 #[cfg(test)]
@@ -383,6 +456,28 @@ mod tests {
             "\r\n7 lines assembled\r\n",
         );
         assert_eq!(got, want);
+    }
+
+    #[test]
+    fn paginate_symbols_structure() {
+        let rows: Vec<String> = (0..5).map(|i| format!("SYM{i}")).collect();
+        // plen 8 => 2 entry-rows per page; start after the body's page 10.
+        let opts = super::PageOpts { top_file: "IN.ASM", timestamp: "TS ", plen: 8 };
+        let (out, last) = super::paginate_symbols(&rows, &opts, "Title", 10);
+        assert_eq!(last, 13); // 5 rows, 2/page -> pages 11,12,13
+        assert!(out.starts_with('\u{0c}')); // form-feed (page != 1)
+        assert_eq!(out.matches("Symbol Table:").count(), 1); // intro printed once
+        assert!(out.contains("Page 11") && out.contains("Page 13"));
+        assert!(!out.contains("Abs. Rel.")); // no body column header in symtab pages
+        assert!(out.ends_with("\r\n5 symbols\r\n"));
+    }
+
+    #[test]
+    fn page_header_right_justifies_page_number() {
+        let h = super::page_header(123, "F.ASM", "T", "TS ", false);
+        let line1 = h.trim_start_matches('\u{0c}').lines().next().unwrap();
+        assert_eq!(line1.len(), super::HEADER_WIDTH); // 79 cols
+        assert!(line1.ends_with("Page 123"));
     }
 
     #[test]

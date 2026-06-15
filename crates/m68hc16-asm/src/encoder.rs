@@ -783,7 +783,13 @@ fn run_pass(lines: &[String], sym_in: &SymbolTable, def_line: &HashMap<String, u
                         let first = split_top_commas(operand).first().map_or(operand, |s| s.trim());
                         match expr::eval_full(first, lc, read_syms!()) {
                             Ok((v, r)) => {
-                                defined.define(lbl, v, if r == 0 { Kind::Abs } else { Kind::Rel });
+                                // A bare `EQU *` is a relocatable "here" address, but `*`
+                                // with an offset (`*+32`) MASM evaluates to an absolute
+                                // value — the lone `ORG_NEW_CALS` case in the corpus.
+                                let t = first.trim();
+                                let lc_offset = t.starts_with('*') && t != "*";
+                                let kind = if r == 0 || lc_offset { Kind::Abs } else { Kind::Rel };
+                                defined.define(lbl, v, kind);
                                 // Shown in the `Obj. code` column as a 32-bit pair.
                                 out.line_emit[idx].equ = Some(v as u32);
                             }
