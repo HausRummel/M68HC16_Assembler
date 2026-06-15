@@ -605,15 +605,15 @@ pub static INSTRUCTIONS: &[InsnDef] = &[
     ] },
     InsnDef { mnemonic: "jmp", modes: &[
         ModeEntry { mode: Mode::Ext20, prefix: &[0x7A], operand_len: 3 },
-        ModeEntry { mode: Mode::Ind16(IdxReg::X), prefix: &[0x4B, 0x00], operand_len: 2 },
-        ModeEntry { mode: Mode::Ind16(IdxReg::Y), prefix: &[0x5B, 0x00], operand_len: 2 },
-        ModeEntry { mode: Mode::Ind16(IdxReg::Z), prefix: &[0x6B, 0x00], operand_len: 2 },
+        ModeEntry { mode: Mode::Ind20(IdxReg::X), prefix: &[0x4B], operand_len: 3 },
+        ModeEntry { mode: Mode::Ind20(IdxReg::Y), prefix: &[0x5B], operand_len: 3 },
+        ModeEntry { mode: Mode::Ind20(IdxReg::Z), prefix: &[0x6B], operand_len: 3 },
     ] },
     InsnDef { mnemonic: "jsr", modes: &[
         ModeEntry { mode: Mode::Ext20, prefix: &[0xFA], operand_len: 3 },
-        ModeEntry { mode: Mode::Ind16(IdxReg::X), prefix: &[0x89, 0x00], operand_len: 2 },
-        ModeEntry { mode: Mode::Ind16(IdxReg::Y), prefix: &[0x99, 0x00], operand_len: 2 },
-        ModeEntry { mode: Mode::Ind16(IdxReg::Z), prefix: &[0xA9, 0x00], operand_len: 2 },
+        ModeEntry { mode: Mode::Ind20(IdxReg::X), prefix: &[0x89], operand_len: 3 },
+        ModeEntry { mode: Mode::Ind20(IdxReg::Y), prefix: &[0x99], operand_len: 3 },
+        ModeEntry { mode: Mode::Ind20(IdxReg::Z), prefix: &[0xA9], operand_len: 3 },
     ] },
     InsnDef { mnemonic: "lbcc", modes: &[
         ModeEntry { mode: Mode::Rel16, prefix: &[0x37, 0x84], operand_len: 2 },

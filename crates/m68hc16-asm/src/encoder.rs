@@ -21,9 +21,11 @@ pub struct Object {
     pub data: Vec<(u32, u8)>,
     pub symbols: SymbolTable,
     pub diagnostics: Vec<Diagnostic>,
-    /// Per-instruction `(source, byte-count)`, for diffing encodings against the
-    /// MASM listing independent of address drift. Dumped via `HC16_TRACE=<file>`.
-    pub trace: Vec<(String, u8)>,
+    /// Per-instruction `(address, byte-count, source)`, for diffing encodings
+    /// against the MASM listing. The address lets a diff track layout drift (and
+    /// localise size mismatches even through `nolist` blocks the listing omits).
+    /// Dumped via `HC16_TRACE=<file>`.
+    pub trace: Vec<(u32, u8, String)>,
 }
 
 impl Object {
@@ -42,10 +44,28 @@ pub fn assemble_source(src: &str) -> Object {
     assemble_source_in(src, None)
 }
 
+/// Which role a pass plays in the two-phase (size-commit then emit) assembly.
+enum Sizing<'a> {
+    /// MASM pass 1: decide each span-dependent operand's width from
+    /// backward-only knowledge and record it, keyed by source line.
+    Record(&'a mut HashMap<u32, bool>),
+    /// Emit passes: replay the frozen widths so the layout cannot drift.
+    Use(&'a HashMap<u32, bool>),
+}
+
 /// Assemble a source string, resolving `include` files relative to `base_dir`.
-/// Includes and macros are expanded once up front; the result is then run through
-/// the fixpoint passes (which evaluate conditionals using the live location
-/// counter and symbols).
+/// Includes and macros are expanded once up front; the result is then assembled
+/// in two phases, mirroring the original MASM:
+///
+/// 1. **Size commitment** (pass 1): a single forward scan builds the symbol table
+///    *incrementally*, so a reference to a not-yet-defined symbol is a forward
+///    reference (sized to the wide operand form) and a reference to an
+///    already-defined symbol is sized by its — now stable — value. Each
+///    span-dependent operand's chosen width is frozen.
+/// 2. **Emit** (later passes): the frozen widths are replayed and only operand
+///    *values* are resolved against the full symbol table. Because no size is
+///    ever recomputed from a drifting value, the layout converges immediately
+///    instead of oscillating (the classic span-dependent-instruction problem).
 pub fn assemble_source_in(src: &str, base_dir: Option<&Path>) -> Object {
     let raw: Vec<String> = src.lines().map(str::to_string).collect();
     let lines = match preprocess(&raw, base_dir) {
@@ -55,14 +75,21 @@ pub fn assemble_source_in(src: &str, base_dir: Option<&Path>) -> Object {
         }
     };
     // First definition line of each symbol (1-based, matching run_pass `lineno`).
-    // Used to size operands: a reference to a symbol defined *later* (forward
-    // reference) commits to the wide form, as MASM's first pass does.
+    // Used during pass 1 to flag forward references on operands (e.g. bit ops)
+    // whose evaluator masks undefined-ness behind a zero placeholder.
     let def_line = definition_lines(&lines);
 
-    let mut symbols = SymbolTable::new();
+    // Phase 1: commit operand sizes in a single forward scan.
+    let mut widths: HashMap<u32, bool> = HashMap::new();
+    let pass1 = run_pass(&lines, &SymbolTable::new(), &def_line, Sizing::Record(&mut widths));
+
+    // Phase 2: emit with widths frozen. Seed with pass 1's addresses so the very
+    // first emit pass already has every label; iterate only to settle `equ`
+    // chains. The layout is fixed, so this cannot drift.
+    let mut symbols = pass1.symbols;
     let mut prev: Option<Vec<(u32, u8)>> = None;
     for _ in 0..40 {
-        let obj = run_pass(&lines, &symbols, &def_line);
+        let obj = run_pass(&lines, &symbols, &def_line, Sizing::Use(&widths));
         if prev.as_ref() == Some(&obj.data) {
             if let Ok(path) = std::env::var("HC16_SYMS") {
                 use std::fmt::Write as _;
@@ -75,8 +102,8 @@ pub fn assemble_source_in(src: &str, base_dir: Option<&Path>) -> Object {
             if let Ok(path) = std::env::var("HC16_TRACE") {
                 use std::fmt::Write as _;
                 let mut s = String::new();
-                for (src, n) in &obj.trace {
-                    let _ = writeln!(s, "{n}\t{src}");
+                for (addr, n, src) in &obj.trace {
+                    let _ = writeln!(s, "{addr:X}\t{n}\t{src}");
                 }
                 let _ = std::fs::write(&path, s);
             }
@@ -85,7 +112,7 @@ pub fn assemble_source_in(src: &str, base_dir: Option<&Path>) -> Object {
         prev = Some(obj.data.clone());
         symbols = obj.symbols.clone();
     }
-    let mut obj = run_pass(&lines, &symbols, &def_line);
+    let mut obj = run_pass(&lines, &symbols, &def_line, Sizing::Use(&widths));
     obj.diagnostics
         .push(Diagnostic::warning("assembly did not converge (possible phase error)"));
     obj
@@ -105,24 +132,54 @@ fn definition_lines(lines: &[String]) -> HashMap<String, usize> {
 /// Does `expr` reference a symbol that is undefined or defined *after* `cur_line`?
 /// Such forward references force the wide operand form. Identifiers immediately
 /// followed by `(` are built-in functions (e.g. `PAGE`), not symbols.
+///
+/// Numeric literals are skipped wholesale: a `$`/`%`/`@`-prefixed or
+/// leading-digit number can contain the letters `A`–`F` (e.g. `$3E`), which must
+/// not be mistaken for an undefined symbol — that bug spuriously widened operands
+/// like `ldab $3e,x`.
 fn needs_wide(expr: &str, cur_line: u32, def_line: &HashMap<String, usize>) -> bool {
     let b = expr.as_bytes();
     let mut i = 0;
     while i < b.len() {
-        if b[i].is_ascii_alphabetic() || b[i] == b'_' || b[i] == b'.' {
-            let start = i;
-            while i < b.len() && (b[i].is_ascii_alphanumeric() || b[i] == b'_' || b[i] == b'.') {
+        match b[i] {
+            // Hex/binary/octal literal: skip the radix mark and all its digits.
+            b'$' | b'%' | b'@' => {
                 i += 1;
+                while i < b.len() && b[i].is_ascii_alphanumeric() {
+                    i += 1;
+                }
             }
-            if b.get(i) == Some(&b'(') {
-                continue; // function call, not a symbol
+            // Decimal literal: skip the whole run (no letters, but be uniform).
+            c if c.is_ascii_digit() => {
+                while i < b.len() && b[i].is_ascii_alphanumeric() {
+                    i += 1;
+                }
             }
-            match def_line.get(&expr[start..i]) {
-                Some(&d) if d as u32 <= cur_line => {} // defined at/before -> known
-                _ => return true,                      // forward or undefined -> wide
+            // Character literal `'x'`: skip the char and an optional closing quote.
+            b'\'' => {
+                i += 1;
+                if i < b.len() {
+                    i += 1;
+                }
+                if i < b.len() && b[i] == b'\'' {
+                    i += 1;
+                }
             }
-        } else {
-            i += 1;
+            // Identifier: a symbol reference (unless it's a function call).
+            c if c.is_ascii_alphabetic() || c == b'_' || c == b'.' => {
+                let start = i;
+                while i < b.len() && (b[i].is_ascii_alphanumeric() || b[i] == b'_' || b[i] == b'.') {
+                    i += 1;
+                }
+                if b.get(i) == Some(&b'(') {
+                    continue; // function call, not a symbol
+                }
+                match def_line.get(&expr[start..i]) {
+                    Some(&d) if d as u32 <= cur_line => {} // defined at/before -> known
+                    _ => return true,                      // forward or undefined -> wide
+                }
+            }
+            _ => i += 1,
         }
     }
     false
@@ -260,13 +317,26 @@ fn substitute_params(line: &str, args: &[String]) -> String {
     out
 }
 
-fn run_pass(lines: &[String], sym_in: &SymbolTable, def_line: &HashMap<String, usize>) -> Object {
+fn run_pass(lines: &[String], sym_in: &SymbolTable, def_line: &HashMap<String, usize>, mut sizing: Sizing) -> Object {
     let mut out = Object::default();
     let mut lc: u32 = 0;
     // Section origin (first `org`); used to pad the section to an even length, which
     // MASM does automatically ("section has an odd length; fill byte was added").
     let mut origin: Option<u32> = None;
     let mut cond_stack: Vec<CondFrame> = Vec::new();
+
+    // Symbols defined so far in *this* pass. In `Record` mode (pass 1) operand
+    // values are read from this table, so a not-yet-defined symbol reads as a
+    // forward reference; in `Use` mode they are read from `sym_in` (the full
+    // table) and `defined` only accumulates this pass's labels for the next one.
+    let mut defined = SymbolTable::new();
+    let recording = matches!(sizing, Sizing::Record(_));
+    // Pass-1 reads backward-only from `defined`; emit passes read the full table.
+    macro_rules! read_syms {
+        () => {
+            if recording { &defined } else { sym_in }
+        };
+    }
 
     for (idx, raw_line) in lines.iter().enumerate() {
         let lineno = (idx + 1) as u32;
@@ -277,7 +347,7 @@ fn run_pass(lines: &[String], sym_in: &SymbolTable, def_line: &HashMap<String, u
         if let Some(op) = op_lower.as_deref() {
             if is_if_directive(op) {
                 let pe = cond_emitting(&cond_stack);
-                let cond = pe && eval_cond(op, line.operand, lc, sym_in).unwrap_or(false);
+                let cond = pe && eval_cond(op, line.operand, lc, read_syms!()).unwrap_or(false);
                 cond_stack.push(CondFrame { parent_emit: pe, taken: cond, emitting: cond });
                 continue;
             }
@@ -306,9 +376,9 @@ fn run_pass(lines: &[String], sym_in: &SymbolTable, def_line: &HashMap<String, u
                     if let Some(operand) = line.operand {
                         // MASM's `EQU a,b` takes the first value.
                         let first = split_top_commas(operand).first().map_or(operand, |s| s.trim());
-                        match expr::eval_full(first, lc, sym_in) {
+                        match expr::eval_full(first, lc, read_syms!()) {
                             Ok((v, r)) => {
-                                out.symbols.define(lbl, v, if r == 0 { Kind::Abs } else { Kind::Rel })
+                                defined.define(lbl, v, if r == 0 { Kind::Abs } else { Kind::Rel })
                             }
                             Err(EvalError::Undefined(_)) => {} // resolves on a later pass
                             Err(EvalError::Syntax(s)) => err(&mut out, lineno, s),
@@ -318,7 +388,7 @@ fn run_pass(lines: &[String], sym_in: &SymbolTable, def_line: &HashMap<String, u
                     }
                 }
                 // A label is an address -> relocatable.
-                _ => out.symbols.define(lbl, lc as i64, Kind::Rel),
+                _ => defined.define(lbl, lc as i64, Kind::Rel),
             }
         }
 
@@ -337,14 +407,14 @@ fn run_pass(lines: &[String], sym_in: &SymbolTable, def_line: &HashMap<String, u
 
         match op {
             "equ" | "set" => {} // handled with the label above
-            "org" => match eval1(line.operand, lc, sym_in) {
+            "org" => match eval1(line.operand, lc, read_syms!()) {
                 Ok(v) => {
                     lc = v as u32;
                     origin.get_or_insert(lc);
                 }
                 Err(e) => err(&mut out, lineno, format!("org: {e}")),
             },
-            "rmb" | "ds" => match eval1(line.operand, lc, sym_in) {
+            "rmb" | "ds" => match eval1(line.operand, lc, read_syms!()) {
                 Ok(v) => lc = lc.wrapping_add(v as u32),
                 Err(e) => err(&mut out, lineno, format!("rmb: {e}")),
             },
@@ -361,24 +431,43 @@ fn run_pass(lines: &[String], sym_in: &SymbolTable, def_line: &HashMap<String, u
                     lc = lc.wrapping_add(1);
                 }
             }
-            "fcb" | "dc.b" => emit_list(&mut out, &mut lc, lineno, line.operand, sym_in, 1),
-            "fdb" | "dc.w" => emit_list(&mut out, &mut lc, lineno, line.operand, sym_in, 2),
+            "fcb" | "dc.b" => {
+                let rt = read_syms!();
+                emit_list(&mut out, &mut lc, lineno, line.operand, rt, 1)
+            }
+            "fdb" | "dc.w" => {
+                let rt = read_syms!();
+                emit_list(&mut out, &mut lc, lineno, line.operand, rt, 2)
+            }
             "fcc" => emit_fcc(&mut out, &mut lc, lineno, line.operand),
             "end" => break,
             _ => match isa::lookup(op) {
-                Some(insn) => match encode_instruction(insn, line.operand, lc, sym_in, lineno, def_line) {
-                    Ok(enc) => {
-                        for n in enc.unresolved {
-                            err(&mut out, lineno, format!("undefined symbol \"{n}\""));
+                Some(insn) => {
+                    // Emit passes replay the committed width; pass 1 computes it.
+                    let forced = match &sizing {
+                        Sizing::Use(m) => m.get(&lineno).copied(),
+                        Sizing::Record(_) => None,
+                    };
+                    let rt = read_syms!();
+                    match encode_instruction(insn, line.operand, lc, rt, lineno, def_line, forced) {
+                        Ok(enc) => {
+                            if let Sizing::Record(m) = &mut sizing {
+                                if let Some(w) = enc.width {
+                                    m.insert(lineno, w);
+                                }
+                            }
+                            for n in enc.unresolved {
+                                err(&mut out, lineno, format!("undefined symbol \"{n}\""));
+                            }
+                            out.trace.push((lc, enc.bytes.len() as u8, raw_line.trim().to_string()));
+                            for b in enc.bytes {
+                                out.data.push((lc, b));
+                                lc = lc.wrapping_add(1);
+                            }
                         }
-                        out.trace.push((raw_line.trim().to_string(), enc.bytes.len() as u8));
-                        for b in enc.bytes {
-                            out.data.push((lc, b));
-                            lc = lc.wrapping_add(1);
-                        }
+                        Err(msg) => err(&mut out, lineno, msg),
                     }
-                    Err(msg) => err(&mut out, lineno, msg),
-                },
+                }
                 None => err(&mut out, lineno, format!("unknown operation `{}`", line.op.unwrap())),
             },
         }
@@ -391,14 +480,8 @@ fn run_pass(lines: &[String], sym_in: &SymbolTable, def_line: &HashMap<String, u
         }
     }
 
-    out.symbols = merge(sym_in, &out.symbols);
+    out.symbols = defined;
     out
-}
-
-/// Carry over previously-known symbols so multi-pass resolution accumulates.
-fn merge(base: &SymbolTable, new: &SymbolTable) -> SymbolTable {
-    let _ = base;
-    new.clone()
 }
 
 fn err(out: &mut Object, line: u32, msg: String) {
@@ -467,8 +550,16 @@ fn push_be(out: &mut Object, lc: &mut u32, value: i64, width: u32) {
 struct Enc {
     bytes: Vec<u8>,
     unresolved: Vec<String>,
+    /// For a span-dependent operand (indexed / immediate / indexed bit op), the
+    /// width chosen: `Some(true)` = wide form, `Some(false)` = narrow. `None` for
+    /// operands whose size is fixed by the mnemonic. Recorded in pass 1, then
+    /// replayed via `forced` in the emit passes so the layout cannot drift.
+    width: Option<bool>,
 }
 
+/// Encode one instruction. `forced` replays a width committed in pass 1: `Some`
+/// overrides the span-dependent size decision (the emit passes pass it), `None`
+/// computes the size from `sym`/`def_line` (pass 1 does this).
 fn encode_instruction(
     insn: &InsnDef,
     operand: Option<&str>,
@@ -476,6 +567,7 @@ fn encode_instruction(
     sym: &SymbolTable,
     cur_line: u32,
     def_line: &HashMap<String, usize>,
+    forced: Option<bool>,
 ) -> Result<Enc, String> {
     let mut unresolved = Vec::new();
 
@@ -483,7 +575,7 @@ fn encode_instruction(
     // column often just holds a trailing comment the lexer captured).
     if insn.modes.iter().all(|m| matches!(m.mode, Mode::Inherent)) {
         if let Some(e) = mode_of(insn, |m| matches!(m, Mode::Inherent)) {
-            return Ok(Enc { bytes: e.prefix.to_vec(), unresolved });
+            return Ok(Enc { bytes: e.prefix.to_vec(), unresolved, width: None });
         }
     }
 
@@ -491,7 +583,7 @@ fn encode_instruction(
     let Some(raw) = operand.map(str::trim).filter(|s| !s.is_empty()) else {
         let e = mode_of(insn, |m| matches!(m, Mode::Inherent))
             .ok_or_else(|| format!("`{}` requires an operand", insn.mnemonic))?;
-        return Ok(Enc { bytes: e.prefix.to_vec(), unresolved });
+        return Ok(Enc { bytes: e.prefix.to_vec(), unresolved, width: None });
     };
 
     // Immediate. Ops with both 8- and 16-bit immediate forms take the smallest
@@ -507,12 +599,21 @@ fn encode_instruction(
         };
         let imm8 = mode_of(insn, |m| matches!(m, Mode::Imm8));
         let imm16 = mode_of(insn, |m| matches!(m, Mode::Imm16));
-        let fits8 = !undef && !needs_wide(rest, cur_line, def_line) && (0..=0xFF).contains(&v);
-        let e = if fits8 { imm8.or(imm16) } else { imm16.or(imm8) }
+        // The 8-bit immediate is SIGNED — it is sign-extended into the (16-bit)
+        // register, so MASM uses the 16-bit form once the value leaves
+        // [-128, 127] (e.g. `adde #$80` = 128 -> 16-bit). This differs from an
+        // indexed offset, which is an unsigned [0, 255] byte. An op with only one
+        // immediate width is not span-dependent.
+        let wide = match forced {
+            Some(w) if imm8.is_some() && imm16.is_some() => w,
+            _ => !(!undef && !needs_wide(rest, cur_line, def_line) && (-128..=127).contains(&v)),
+        };
+        let e = if !wide { imm8.or(imm16) } else { imm16.or(imm8) }
             .ok_or_else(|| format!("`{}` has no immediate mode", insn.mnemonic))?;
+        let span_dep = imm8.is_some() && imm16.is_some();
         let mut bytes = e.prefix.to_vec();
         emit_be(&mut bytes, v, e.operand_len);
-        return Ok(Enc { bytes, unresolved });
+        return Ok(Enc { bytes, unresolved, width: span_dep.then_some(wide) });
     }
 
     // Bit-conditional branch: extended `addr,#mask,target` (rel16) or indexed
@@ -530,14 +631,24 @@ fn encode_instruction(
                 bytes.push(m as u8);
                 emit_be(&mut bytes, a, 2);
                 emit_be(&mut bytes, rel, 2);
-                return Ok(Enc { bytes, unresolved });
+                return Ok(Enc { bytes, unresolved, width: None });
             }
             [off, reg, mask, tgt] if parse_reg(reg).is_some() => {
                 let r = parse_reg(reg).unwrap();
                 let o = eval_or_zero(off, lc, sym, &mut unresolved)?;
                 let m = eval_or_zero(mask.trim_start_matches('#'), lc, sym, &mut unresolved)?;
                 let rel = eval_or_zero(tgt, lc, sym, &mut unresolved)? - (lc as i64 + 6);
-                let wide = needs_wide(off, cur_line, def_line) || !(0..=0xFF).contains(&o);
+                // The 8-bit form carries (off8, rel8); the 16-bit form carries
+                // (off16, rel16). MASM commits to the wide form if EITHER the
+                // offset needs 16 bits OR the branch displacement does — and a
+                // forward target's displacement is unknown in pass 1, so it
+                // forces rel16 (hence the wide form) just like a forward offset.
+                let wide = forced.unwrap_or_else(|| {
+                    needs_wide(off, cur_line, def_line)
+                        || !(0..=0xFF).contains(&o)
+                        || needs_wide(tgt, cur_line, def_line)
+                        || !(-128..=127).contains(&rel)
+                });
                 let mut bytes;
                 if wide {
                     let e = mode_of(insn, |mm| matches!(mm, Mode::BitBrInd16(rr) if rr == r))
@@ -554,7 +665,7 @@ fn encode_instruction(
                     bytes.push(o as u8);
                     bytes.push(rel as u8);
                 }
-                return Ok(Enc { bytes, unresolved });
+                return Ok(Enc { bytes, unresolved, width: Some(wide) });
             }
             _ => return Err(format!("`{}`: expects addr,#mask,target or off,reg,#mask,target", insn.mnemonic)),
         }
@@ -572,13 +683,13 @@ fn encode_instruction(
                 let mut bytes = e.prefix.to_vec();
                 bytes.push(m as u8);
                 emit_be(&mut bytes, a, 2);
-                return Ok(Enc { bytes, unresolved });
+                return Ok(Enc { bytes, unresolved, width: None });
             }
             [off, reg, mask] if parse_reg(reg).is_some() => {
                 let r = parse_reg(reg).unwrap();
                 let o = eval_or_zero(off, lc, sym, &mut unresolved)?;
                 let m = eval_or_zero(mask.trim_start_matches('#'), lc, sym, &mut unresolved)?;
-                let wide = needs_wide(off, cur_line, def_line) || !(0..=0xFF).contains(&o);
+                let wide = forced.unwrap_or_else(|| needs_wide(off, cur_line, def_line) || !(0..=0xFF).contains(&o));
                 let mut bytes;
                 if wide {
                     let e = mode_of(insn, |mm| matches!(mm, Mode::BitInd16(rr) if rr == r))
@@ -593,7 +704,7 @@ fn encode_instruction(
                     bytes.push(m as u8);
                     bytes.push(o as u8);
                 }
-                return Ok(Enc { bytes, unresolved });
+                return Ok(Enc { bytes, unresolved, width: Some(wide) });
             }
             _ => return Err(format!("`{}`: expects addr,#mask or off,reg,#mask", insn.mnemonic)),
         }
@@ -611,7 +722,7 @@ fn encode_instruction(
         }
         let mut bytes = e.prefix.to_vec();
         bytes.push(mask);
-        return Ok(Enc { bytes, unresolved });
+        return Ok(Enc { bytes, unresolved, width: None });
     }
 
     // Memory move (movb/movw). Indexed forms support X only.
@@ -625,7 +736,7 @@ fn encode_instruction(
                 let mut bytes = e.prefix.to_vec();
                 emit_be(&mut bytes, s, 2);
                 emit_be(&mut bytes, d, 2);
-                return Ok(Enc { bytes, unresolved });
+                return Ok(Enc { bytes, unresolved, width: None });
             }
             [off, reg, dst] if is_x_reg(reg) => {
                 let e = mode_of(insn, |m| matches!(m, Mode::MovIdxExt))
@@ -635,7 +746,7 @@ fn encode_instruction(
                 let mut bytes = e.prefix.to_vec();
                 emit_be(&mut bytes, o, 1);
                 emit_be(&mut bytes, d, 2);
-                return Ok(Enc { bytes, unresolved });
+                return Ok(Enc { bytes, unresolved, width: None });
             }
             [src, off, reg] if is_x_reg(reg) => {
                 let e = mode_of(insn, |m| matches!(m, Mode::MovExtIdx))
@@ -645,7 +756,7 @@ fn encode_instruction(
                 let mut bytes = e.prefix.to_vec();
                 emit_be(&mut bytes, o, 1);
                 emit_be(&mut bytes, s, 2);
-                return Ok(Enc { bytes, unresolved });
+                return Ok(Enc { bytes, unresolved, width: None });
             }
             _ => return Err(format!("`{}`: bad move operand (index register must be X)", insn.mnemonic)),
         }
@@ -661,7 +772,7 @@ fn encode_instruction(
         let b = eval_or_zero(parts[1].trim(), lc, sym, &mut unresolved)?;
         let mut bytes = e.prefix.to_vec();
         bytes.push(((a as u8 & 0x0F) << 4) | (b as u8 & 0x0F));
-        return Ok(Enc { bytes, unresolved });
+        return Ok(Enc { bytes, unresolved, width: None });
     }
 
     // Indexed or accumulator-E indexed: `<base>,<reg>`.
@@ -669,10 +780,12 @@ fn encode_instruction(
         if base.eq_ignore_ascii_case("e") {
             let e = mode_of(insn, |m| matches!(m, Mode::EInd(r) if r == reg))
                 .ok_or_else(|| format!("`{}` has no E,{reg:?} mode", insn.mnemonic))?;
-            return Ok(Enc { bytes: e.prefix.to_vec(), unresolved });
+            return Ok(Enc { bytes: e.prefix.to_vec(), unresolved, width: None });
         }
-        // Pick Ind8 only for an absolute offset that fits a byte; relocatable
-        // (address-like) offsets take the 16-bit form even when small, as MASM does.
+        // Pick Ind8 only for an absolute offset that fits a byte; a forward
+        // reference (defined later in source) takes the 16-bit form even when the
+        // value would fit a byte, as MASM's first pass commits. The chosen width
+        // is recorded in pass 1 and replayed (`forced`) so it never flips on drift.
         let (off, undef) = match expr::eval(base, lc, sym) {
             Ok(v) => (v, false),
             Err(EvalError::Undefined(n)) => {
@@ -681,18 +794,26 @@ fn encode_instruction(
             }
             Err(EvalError::Syntax(s)) => return Err(s),
         };
-        let fits8 = !undef && !needs_wide(base, cur_line, def_line) && (0..=0xFF).contains(&off);
-        let e = if fits8 {
+        let wide = match forced {
+            Some(w) => w,
+            None => !(!undef && !needs_wide(base, cur_line, def_line) && (0..=0xFF).contains(&off)),
+        };
+        let e = if !wide {
             mode_of(insn, |m| matches!(m, Mode::Ind8(r) if r == reg))
                 .or_else(|| mode_of(insn, |m| matches!(m, Mode::Ind16(r) if r == reg)))
         } else {
             mode_of(insn, |m| matches!(m, Mode::Ind16(r) if r == reg))
                 .or_else(|| mode_of(insn, |m| matches!(m, Mode::Ind8(r) if r == reg)))
         }
+        // `jmp`/`jsr` have only a fixed 20-bit indexed form (no 8/16-bit variants).
+        .or_else(|| mode_of(insn, |m| matches!(m, Mode::Ind20(r) if r == reg)))
         .ok_or_else(|| format!("`{}` has no indexed-{reg:?} mode", insn.mnemonic))?;
+        // Span-dependent only if both widths exist for this register.
+        let span_dep = mode_of(insn, |m| matches!(m, Mode::Ind8(r) if r == reg)).is_some()
+            && mode_of(insn, |m| matches!(m, Mode::Ind16(r) if r == reg)).is_some();
         let mut bytes = e.prefix.to_vec();
         emit_be(&mut bytes, off, e.operand_len);
-        return Ok(Enc { bytes, unresolved });
+        return Ok(Enc { bytes, unresolved, width: span_dep.then_some(wide) });
     }
 
     // Relative branch. CPU16 displacements are relative to the instruction start
@@ -706,7 +827,7 @@ fn encode_instruction(
         }
         let mut bytes = e.prefix.to_vec();
         emit_be(&mut bytes, rel, e.operand_len);
-        return Ok(Enc { bytes, unresolved });
+        return Ok(Enc { bytes, unresolved, width: None });
     }
 
     // Extended (16- or 20-bit absolute address).
@@ -714,7 +835,7 @@ fn encode_instruction(
         let addr = eval_or_zero(raw, lc, sym, &mut unresolved)?;
         let mut bytes = e.prefix.to_vec();
         emit_be(&mut bytes, addr, e.operand_len);
-        return Ok(Enc { bytes, unresolved });
+        return Ok(Enc { bytes, unresolved, width: None });
     }
 
     Err(format!("`{}`: could not encode operand `{raw}`", insn.mnemonic))
@@ -925,6 +1046,37 @@ mod tests {
         assert_eq!(
             hex(&obj.bytes()),
             "34 03 35 60 34 7F 37 FE 10 00 20 00 30 08 20 00 32 08 20 00 FB 46"
+        );
+    }
+
+    #[test]
+    fn span_dependent_sizing_matches_oracle() {
+        // Authoritative MASM bytes (DOSBox oracle) locking in the span-dependent
+        // operand-size rules reverse-engineered from the corpus:
+        //  - 8-bit immediate is SIGNED: `adde #$7f` -> Imm8, `adde #$80` -> Imm16.
+        //  - a `$`-hex offset with letter digits must not be read as a forward
+        //    symbol: `ldab $3e,x` stays Ind8 (C5 3E), not Ind16.
+        //  - `jsr`/`jmp` indexed use a fixed 20-bit (3-byte) offset.
+        //  - an indexed bit-branch sizes by its TARGET: a forward target forces
+        //    the 16-bit form (rel16), a backward one keeps the 8-bit form.
+        let src = "        org $2000\n\
+                   back    rts\n\
+                   \x20       adde #$7f\n\
+                   \x20       adde #$80\n\
+                   \x20       addd #$80\n\
+                   \x20       ldab $3e,x\n\
+                   \x20       jsr $20000,z\n\
+                   \x20       jmp $30000,z\n\
+                   \x20       brclr 0,x,#$01,fwd\n\
+                   \x20       brclr 0,x,#$01,back\n\
+                   fwd     rts\n\
+                   \x20       end\n";
+        let obj = asm(src);
+        assert!(!obj.has_errors(), "diagnostics: {:?}", obj.diagnostics);
+        assert_eq!(
+            hex(&obj.bytes()),
+            "27 F7 7C 7F 37 31 00 80 37 B1 00 80 C5 3E A9 02 00 00 \
+             6B 03 00 00 0A 01 00 00 00 04 CB 01 00 DE 27 F7"
         );
     }
 

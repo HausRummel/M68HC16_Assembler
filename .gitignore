@@ -23,6 +23,9 @@ tools/oracle/_*.lst
 tools/oracle/_*.s19
 tools/oracle/_*.obj
 
+# Scratch diff/diagnostic outputs (hold corpus-derived listings — never commit).
+out_diag/
+
 # --- Editor / OS noise ---
 .vscode/
 .idea/

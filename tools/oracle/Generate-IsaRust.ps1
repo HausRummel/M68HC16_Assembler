@@ -17,6 +17,7 @@ $MAP = @{
     'ext'='Mode::Ext'; 'ext20'='Mode::Ext20'
     'ind8x'='Mode::Ind8(IdxReg::X)'; 'ind8y'='Mode::Ind8(IdxReg::Y)'; 'ind8z'='Mode::Ind8(IdxReg::Z)'
     'ind16x'='Mode::Ind16(IdxReg::X)'; 'ind16y'='Mode::Ind16(IdxReg::Y)'; 'ind16z'='Mode::Ind16(IdxReg::Z)'
+    'ind20x'='Mode::Ind20(IdxReg::X)'; 'ind20y'='Mode::Ind20(IdxReg::Y)'; 'ind20z'='Mode::Ind20(IdxReg::Z)'
     'eindx'='Mode::EInd(IdxReg::X)'; 'eindy'='Mode::EInd(IdxReg::Y)'; 'eindz'='Mode::EInd(IdxReg::Z)'
     'rel8'='Mode::Rel8'; 'rel16'='Mode::Rel16'
     'bit'='Mode::BitExt'; 'bitbr'='Mode::BitBrExt'; 'reg'='Mode::RegList'
@@ -29,6 +30,7 @@ $MAP = @{
 
 # Stable per-mnemonic mode ordering for readable output.
 $ORDER = @('inh','imm8','imm16','ext','ext20','ind8x','ind8y','ind8z','ind16x','ind16y','ind16z',
+           'ind20x','ind20y','ind20z',
            'eindx','eindy','eindz','rel8','rel16','bit','bitix','bitiy','bitiz',
            'bitix16','bitiy16','bitiz16',
            'bitbr','bitbrix','bitbriy','bitbriz','bitbrix16','bitbriy16','bitbriz16',

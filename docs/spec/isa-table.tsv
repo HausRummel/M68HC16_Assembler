@@ -392,13 +392,13 @@ incw	ind16y	27 13	2	4
 incw	ind16z	27 23	2	4
 inx	inh	3C 01	0	2
 jmp	ext20	7A	3	4
-jmp	ind16x	4B 00	2	4
-jmp	ind16y	5B 00	2	4
-jmp	ind16z	6B 00	2	4
+jmp	ind20x	4B	3	4
+jmp	ind20y	5B	3	4
+jmp	ind20z	6B	3	4
 jsr	ext20	FA	3	4
-jsr	ind16x	89 00	2	4
-jsr	ind16y	99 00	2	4
-jsr	ind16z	A9 00	2	4
+jsr	ind20x	89	3	4
+jsr	ind20y	99	3	4
+jsr	ind20z	A9	3	4
 lbcc	rel16	37 84	2	4
 lbcs	rel16	37 85	2	4
 lbeq	rel16	37 87	2	4

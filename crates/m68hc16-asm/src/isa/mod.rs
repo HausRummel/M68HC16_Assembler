@@ -42,6 +42,9 @@ pub enum Mode {
     Ind8(IdxReg),
     /// 16-bit offset, indexed by X/Y/Z.
     Ind16(IdxReg),
+    /// 20-bit offset (3 bytes), indexed by X/Y/Z — used by `jmp`/`jsr` through an
+    /// index register to reach any code page. Always 3 bytes, never span-dependent.
+    Ind20(IdxReg),
     /// Accumulator-E offset, indexed by X/Y/Z (no operand bytes).
     EInd(IdxReg),
     /// 8-bit PC-relative branch.
@@ -149,7 +152,7 @@ mod tests {
                     Mode::Inherent | Mode::EInd(_) => assert_eq!(m.operand_len, 0, "{} {:?}", d.mnemonic, m.mode),
                     Mode::Imm8 | Mode::Rel8 => assert_eq!(m.operand_len, 1, "{} {:?}", d.mnemonic, m.mode),
                     Mode::Imm16 | Mode::Ext | Mode::Rel16 => assert_eq!(m.operand_len, 2, "{} {:?}", d.mnemonic, m.mode),
-                    Mode::Ext20 => assert_eq!(m.operand_len, 3, "{} {:?}", d.mnemonic, m.mode),
+                    Mode::Ext20 | Mode::Ind20(_) => assert_eq!(m.operand_len, 3, "{} {:?}", d.mnemonic, m.mode),
                     _ => assert!(m.operand_len <= 5, "{} {:?}", d.mnemonic, m.mode),
                 }
             }
