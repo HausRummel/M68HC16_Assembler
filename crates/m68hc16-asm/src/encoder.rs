@@ -43,6 +43,27 @@ pub struct Object {
     /// Names of every `macro` defined in the source. MASM lists these in the
     /// `.LST` symbol table (attrib `macro`, no value); they are not in the OBJ.
     pub macros: Vec<String>,
+    /// The source stream with provenance, for the `.LST` body: one entry per
+    /// line MASM counts in its `Abs` column (every line except dropped macro
+    /// definitions). The `assembled` entries, in order, equal the flat stream
+    /// the assembler consumes, so their emitted bytes/loc map positionally.
+    pub list_lines: Vec<ListLine>,
+}
+
+/// One source line in the `.LST` listing stream (see [`Object::list_lines`]).
+#[derive(Debug, Clone)]
+pub struct ListLine {
+    pub text: String,
+    /// Line number within its own source file (the `Rel.` column).
+    pub rel: u32,
+    /// Include nesting depth; >0 prints the `i` suffix on `Rel.`.
+    pub depth: u32,
+    /// Whether MASM prints this line in the body (macro expansions are not).
+    pub listed: bool,
+    /// Whether this line is in the assembled stream (carries loc/object code).
+    /// `INCLUDE` directives and macro invocation lines are listed but not
+    /// assembled; macro expansion lines are assembled but not listed.
+    pub assembled: bool,
 }
 
 /// The element kind of a span — drives the COFF symbol `type` (Code=0,
@@ -102,6 +123,9 @@ pub fn assemble_source_in(src: &str, base_dir: Option<&Path>) -> Object {
             return Object { diagnostics: diags, ..Object::default() };
         }
     };
+    // Provenance stream for the .LST body (additive; the assembly path below is
+    // unchanged, so S19/OBJ stay byte-identical).
+    let list_lines = build_listing_lines(&raw, base_dir);
     // First definition line of each symbol (1-based, matching run_pass `lineno`).
     // Used during pass 1 to flag forward references on operands (e.g. bit ops)
     // whose evaluator masks undefined-ness behind a zero placeholder.
@@ -124,6 +148,18 @@ pub fn assemble_source_in(src: &str, base_dir: Option<&Path>) -> Object {
             obj.data = fill_sections(&obj.data, &obj.org_targets);
             obj.sym_order = order_symbols(&obj.symbols, &lines);
             obj.macros = macro_names.clone();
+            obj.list_lines = list_lines.clone();
+            if let Ok(path) = std::env::var("HC16_LISTLINES") {
+                use std::fmt::Write as _;
+                let mut s = String::new();
+                for (i, ll) in obj.list_lines.iter().enumerate() {
+                    if ll.listed {
+                        let suffix = if ll.depth > 0 { "i" } else { "" };
+                        let _ = writeln!(s, "{}\t{}{}\t{}", i + 1, ll.rel, suffix, ll.text);
+                    }
+                }
+                let _ = std::fs::write(&path, s);
+            }
             if let Ok(path) = std::env::var("HC16_SYMCTX") {
                 dump_sym_ctx(&obj, &lines, &path);
             }
@@ -152,6 +188,7 @@ pub fn assemble_source_in(src: &str, base_dir: Option<&Path>) -> Object {
     obj.data = fill_sections(&obj.data, &obj.org_targets);
     obj.sym_order = order_symbols(&obj.symbols, &lines);
     obj.macros = macro_names;
+    obj.list_lines = list_lines;
     obj.diagnostics
         .push(Diagnostic::warning("assembly did not converge (possible phase error)"));
     obj
@@ -439,6 +476,130 @@ fn expand_includes(lines: &[String], base: Option<&Path>, depth: u32, diags: &mu
         }
     }
     out
+}
+
+/// Build the `.LST` listing stream with provenance (see [`Object::list_lines`]).
+/// Mirrors [`expand_includes`]/[`expand_macros`] but keeps the structural lines
+/// MASM prints: the `INCLUDE` directive (then its content at depth+1, rel reset)
+/// and the macro invocation (then its suppressed expansion). Macro definitions
+/// are dropped, as MASM does not list or count them.
+fn build_listing_lines(raw: &[String], base: Option<&Path>) -> Vec<ListLine> {
+    let mut inc = Vec::new();
+    list_expand_includes(raw, base, 0, &mut inc);
+    let mut macros: HashMap<String, Vec<String>> = HashMap::new();
+    let mut body: Vec<ListLine> = Vec::new();
+    let mut current: Option<(String, Vec<String>)> = None;
+    for ll in inc {
+        let op = split_line(&ll.text).op.map(|o| o.to_ascii_lowercase());
+        if current.is_some() {
+            if op.as_deref() == Some("endm") {
+                let (name, lines) = current.take().unwrap();
+                macros.insert(name, lines);
+            } else if let Some((_, mlines)) = current.as_mut() {
+                mlines.push(ll.text.clone());
+            }
+            // Definition lines: MASM counts them in `Abs` but neither lists nor
+            // assembles them.
+            body.push(ListLine { listed: false, assembled: false, ..ll });
+            continue;
+        }
+        if op.as_deref() == Some("macro") {
+            let name = split_line(&ll.text).label.map(str::to_string);
+            if let Some(n) = name {
+                current = Some((n, Vec::new()));
+            }
+            body.push(ListLine { listed: false, assembled: false, ..ll });
+            continue;
+        }
+        body.push(ll);
+    }
+    let mut out = Vec::new();
+    list_expand_invocations(&body, &macros, 0, &mut out);
+
+    // Apply listing control: `NOLIST`/`LIST` toggle whether following lines are
+    // printed, and the `LIST`/`NOLIST`/`PAGE` directive lines are not echoed.
+    // All lines are still counted in `Abs`; suppression only clears `listed`.
+    let mut on = true;
+    for ll in &mut out {
+        match split_line(&ll.text).op.map(|o| o.to_ascii_uppercase()).as_deref() {
+            Some("NOLIST") => {
+                ll.listed = false;
+                on = false;
+            }
+            Some("LIST") => {
+                ll.listed = false;
+                on = true;
+            }
+            Some("PAGE") => ll.listed = false,
+            _ => {
+                if !on {
+                    ll.listed = false;
+                }
+            }
+        }
+    }
+    out
+}
+
+fn list_expand_includes(lines: &[String], base: Option<&Path>, depth: u32, out: &mut Vec<ListLine>) {
+    if depth > 32 {
+        return;
+    }
+    for (i, line) in lines.iter().enumerate() {
+        let p = split_line(line);
+        let rel = (i + 1) as u32;
+        if p.op.map(|o| o.eq_ignore_ascii_case("include")).unwrap_or(false) {
+            out.push(ListLine { text: line.clone(), rel, depth, listed: true, assembled: false });
+            if let Some(name) = p.operand.map(|s| s.trim().trim_matches('"')) {
+                let path = base.map(|b| b.join(name)).unwrap_or_else(|| PathBuf::from(name));
+                if let Ok(bytes) = std::fs::read(&path) {
+                    let sub: Vec<String> =
+                        String::from_utf8_lossy(&bytes).lines().map(str::to_string).collect();
+                    list_expand_includes(&sub, path.parent(), depth + 1, out);
+                }
+            }
+        } else {
+            out.push(ListLine { text: line.clone(), rel, depth, listed: true, assembled: true });
+        }
+    }
+}
+
+fn list_expand_invocations(
+    lines: &[ListLine],
+    macros: &HashMap<String, Vec<String>>,
+    depth: u32,
+    out: &mut Vec<ListLine>,
+) {
+    if depth > 64 {
+        return;
+    }
+    for ll in lines {
+        let p = split_line(&ll.text);
+        if let Some(op) = p.op {
+            if let Some(mbody) = macros.get(op) {
+                // The invocation line is listed but its expansion does the work.
+                out.push(ListLine { assembled: false, ..ll.clone() });
+                let args: Vec<String> = p
+                    .operand
+                    .map(|o| split_top_commas(o).iter().map(|s| s.trim().to_string()).collect())
+                    .unwrap_or_default();
+                let mut expanded: Vec<ListLine> = Vec::new();
+                if let Some(lbl) = p.label {
+                    expanded.push(ListLine {
+                        text: format!("{lbl}:"), rel: ll.rel, depth: ll.depth, listed: false, assembled: true,
+                    });
+                }
+                for bl in mbody {
+                    expanded.push(ListLine {
+                        text: substitute_params(bl, &args), rel: ll.rel, depth: ll.depth, listed: false, assembled: true,
+                    });
+                }
+                list_expand_invocations(&expanded, macros, depth + 1, out);
+                continue;
+            }
+        }
+        out.push(ll.clone());
+    }
 }
 
 fn expand_macros(lines: &[String], diags: &mut Vec<Diagnostic>, names: &mut Vec<String>) -> Vec<String> {
