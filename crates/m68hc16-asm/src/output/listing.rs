@@ -21,6 +21,7 @@
 //! before lowercase), then a `N symbols` footer counting sections + program syms.
 
 use crate::encoder::{LineEmit, ListLine};
+use crate::lexer::split_line;
 use crate::symbols::{Kind, SymbolTable};
 
 /// Render the listing **body**: one row per listed source line, in the form
@@ -44,74 +45,89 @@ pub fn body(list_lines: &[ListLine], line_emit: &[LineEmit]) -> String {
     let mut out = String::new();
     let mut asm_idx = 0usize;
     for (i, ll) in list_lines.iter().enumerate() {
-        let emit = if ll.assembled {
-            let e = line_emit.get(asm_idx);
-            asm_idx += 1;
-            e
-        } else {
-            None
-        };
+        let emit = next_emit(ll, line_emit, &mut asm_idx);
         if !ll.listed {
             continue;
         }
-        let abs = i + 1;
-        let isuf = if ll.depth > 0 { 'i' } else { ' ' };
-        // Prefix occupies cols 0..12 (wider when `Abs`/`Rel` exceed 4 digits), so
-        // `Loc` begins at col 12.
-        let pre = format!("{abs:>4} {rel:>4}{isuf}  ", rel = ll.rel);
-        // Instruction wraps blank `Rel` on continuation rows; the abs field keeps
-        // its width and the `Rel`+suffix+gap (8 cols) become spaces.
-        let pre_cont = format!("{abs:>4}        ");
-        // MASM caps the source column at 132 chars (the rest of a long comment is
-        // dropped); detab first since the cap is on displayed columns.
-        let src: String = detab(&ll.text).chars().take(SRC_WIDTH).collect();
-
-        match emit {
-            Some(e) if !e.bytes.is_empty() => {
-                let words = group_words(&e.bytes);
-                let loc0 = e.loc.unwrap_or(0);
-                let mut byte_off = 0u32;
-                // Up to two 16-bit words per physical line; the rest wrap. Data
-                // directives repeat Abs+Rel on continuation rows; instructions
-                // repeat Abs but blank Rel.
-                for (k, chunk) in words.chunks(2).enumerate() {
-                    let obj = chunk.join(" ");
-                    let (p, s) = if k == 0 {
-                        (pre.as_str(), src.as_str())
-                    } else if e.is_data {
-                        (pre.as_str(), "")
-                    } else {
-                        (pre_cont.as_str(), "")
-                    };
-                    body_row(&mut out, p, Some(loc0 + byte_off), &obj, s);
-                    byte_off += chunk.iter().map(|w| (w.len() / 2) as u32).sum::<u32>();
-                }
-            }
-            Some(e) if e.equ.is_some() => {
-                let v = e.equ.unwrap();
-                let obj = format!("{:04X} {:04X}", v >> 16, v & 0xFFFF);
-                body_row(&mut out, &pre, None, &obj, &src);
-            }
-            Some(e) if e.loc.is_some() => body_row(&mut out, &pre, e.loc, "", &src),
-            _ => body_row(&mut out, &pre, None, "", &src),
+        for row in line_rows(i + 1, ll.rel, ll.depth, emit, &ll.text) {
+            out.push_str(&row);
         }
     }
-    // Body footer: a blank line then the total source-line count. MASM counts the
-    // empty line after the file's final newline (which `lines()` drops), so the
-    // tally is one past the highest `Abs`.
-    out.push_str(&format!("\r\n{} lines assembled\r\n", list_lines.len() + 1));
+    out.push_str(&body_footer(list_lines.len()));
     out
 }
 
-/// Emit one physical body row. `loc` is the 6-hex `Loc` (blank if `None`); `obj`
-/// the object-code text (≤9 chars, left-justified); `src` the source column.
-fn body_row(out: &mut String, pre: &str, loc: Option<u32>, obj: &str, src: &str) {
+/// Take the next `LineEmit` for an `assembled` line, advancing the index. The
+/// emit stream is positionally aligned with the `assembled` lines.
+fn next_emit<'a>(ll: &ListLine, line_emit: &'a [LineEmit], asm_idx: &mut usize) -> Option<&'a LineEmit> {
+    if ll.assembled {
+        let e = line_emit.get(*asm_idx);
+        *asm_idx += 1;
+        e
+    } else {
+        None
+    }
+}
+
+/// The blank line + `N lines assembled` tally that closes the body. MASM counts
+/// the empty line after the file's final newline (which `lines()` drops), so the
+/// tally is one past the highest `Abs`.
+fn body_footer(n_lines: usize) -> String {
+    format!("\r\n{} lines assembled\r\n", n_lines + 1)
+}
+
+/// The physical `.LST` rows one source line contributes: one per object-code
+/// chunk (object code wraps at two 16-bit words), or a single row otherwise.
+/// `emit` is `None` for listed-but-not-assembled lines (INCLUDE / macro call).
+fn line_rows(abs: usize, rel: u32, depth: u32, emit: Option<&LineEmit>, text: &str) -> Vec<String> {
+    let isuf = if depth > 0 { 'i' } else { ' ' };
+    // Prefix occupies cols 0..12 (wider when Abs/Rel exceed 4 digits).
+    let pre = format!("{abs:>4} {rel:>4}{isuf}  ");
+    // Instruction wraps blank Rel on continuation rows; the abs field keeps its
+    // width and the Rel+suffix+gap (8 cols) become spaces.
+    let pre_cont = format!("{abs:>4}        ");
+    // MASM caps the source column at 132 chars (rest of a long comment dropped);
+    // detab first since the cap is on displayed columns.
+    let src: String = detab(text).chars().take(SRC_WIDTH).collect();
+
+    let mut rows = Vec::new();
+    match emit {
+        Some(e) if !e.bytes.is_empty() => {
+            let words = group_words(&e.bytes);
+            let loc0 = e.loc.unwrap_or(0);
+            let mut byte_off = 0u32;
+            for (k, chunk) in words.chunks(2).enumerate() {
+                let obj = chunk.join(" ");
+                let (p, s) = if k == 0 {
+                    (pre.as_str(), src.as_str())
+                } else if e.is_data {
+                    (pre.as_str(), "")
+                } else {
+                    (pre_cont.as_str(), "")
+                };
+                rows.push(fmt_row(p, Some(loc0 + byte_off), &obj, s));
+                byte_off += chunk.iter().map(|w| (w.len() / 2) as u32).sum::<u32>();
+            }
+        }
+        Some(e) if e.equ.is_some() => {
+            let v = e.equ.unwrap();
+            let obj = format!("{:04X} {:04X}", v >> 16, v & 0xFFFF);
+            rows.push(fmt_row(&pre, None, &obj, &src));
+        }
+        Some(e) if e.loc.is_some() => rows.push(fmt_row(&pre, e.loc, "", &src)),
+        _ => rows.push(fmt_row(&pre, None, "", &src)),
+    }
+    rows
+}
+
+/// Format one physical row. `loc` is the 6-hex `Loc` (blank if `None`); `obj` the
+/// object-code text (≤9 chars, left-justified); `src` the source column. CRLF.
+fn fmt_row(pre: &str, loc: Option<u32>, obj: &str, src: &str) -> String {
     let loc6 = match loc {
         Some(l) => format!("{l:06X}"),
         None => "      ".to_string(),
     };
-    // The `.LST` is a DOS text file: CRLF line endings. (`src` is pre-truncated.)
-    out.push_str(&format!("{pre}{loc6} {obj:<9}   {src}\r\n"));
+    format!("{pre}{loc6} {obj:<9}   {src}\r\n")
 }
 
 /// Maximum width of the source column; longer source comments are cut here.
@@ -151,6 +167,130 @@ fn detab(s: &str) -> String {
         }
     }
     out
+}
+
+/// The non-deterministic / configurable fields of a paginated listing.
+pub struct PageOpts<'a> {
+    /// Header filename for the top-level source. MASM uses the input file name as
+    /// given on its command line (the corpus oracle renames it to `IN.ASM`).
+    pub top_file: &'a str,
+    /// Header time field. MASM stamps each page with the wall-clock at generation,
+    /// so it is non-deterministic; we use one value for every page.
+    pub timestamp: &'a str,
+    /// Printed lines per page (`PLEN`; the corpus sets 60).
+    pub plen: usize,
+}
+
+/// Lines in a page-header block: banner, file/time, title, blank, the two column
+/// headers.
+const HEADER_LINES: usize = 6;
+/// Width of header line 1 (the `Page N` field is right-justified to this column).
+const HEADER_WIDTH: usize = 79;
+
+/// Render the paginated listing **body**: the [`body`] rows wrapped under repeating
+/// page headers. `PAGE` directives force a break, `TTL` sets the running title, the
+/// header filename tracks the current include, and a page breaks after `plen`
+/// printed lines. (Everything is deterministic except the per-page timestamp.)
+pub fn paginate_body(list_lines: &[ListLine], line_emit: &[LineEmit], opts: &PageOpts) -> String {
+    let mut out = String::new();
+    let mut asm_idx = 0usize;
+    let mut page_no = 0usize;
+    // Force a header before the first row.
+    let mut lines_on_page = opts.plen;
+    let mut pending_break = false;
+    // MASM emits the listing in pass 2 with the title already set from pass 1, so
+    // page 1 shows the source's title even though `TTL` appears a few lines in.
+    let mut title = last_ttl(list_lines).unwrap_or_default();
+    // Include-stack of header filenames; `files[d]` is the file at depth `d`.
+    let mut files: Vec<String> = vec![opts.top_file.to_string()];
+    let mut last_include = String::new();
+    // `PAGE` only ejects when the listing is on (nothing to eject under `NOLIST`),
+    // so track listing state to ignore `PAGE` inside `NOLIST` equate includes.
+    let mut listing_on = true;
+
+    for (i, ll) in list_lines.iter().enumerate() {
+        let want = ll.depth as usize + 1;
+        while files.len() > want {
+            files.pop();
+        }
+        if files.len() < want {
+            files.push(last_include.clone());
+        }
+        let cur_file = files.last().cloned().unwrap_or_default();
+
+        let emit = next_emit(ll, line_emit, &mut asm_idx);
+
+        // Pagination-affecting directives, read from the source text. PAGE/TTL/
+        // LIST/NOLIST act only when executed (`assembled`) — a copy inside a macro
+        // *definition* is inert; INCLUDE is read regardless, for filename tracking.
+        match split_line(&ll.text).op.map(|o| o.to_ascii_uppercase()).as_deref() {
+            Some("INCLUDE") => last_include = include_name(&ll.text),
+            Some("NOLIST") if ll.assembled => listing_on = false,
+            Some("LIST") if ll.assembled => listing_on = true,
+            Some("PAGE") if ll.assembled && listing_on => pending_break = true,
+            Some("TTL") if ll.assembled => title = ttl_title(&ll.text).unwrap_or_default(),
+            _ => {}
+        }
+
+        if !ll.listed {
+            continue;
+        }
+        for row in line_rows(i + 1, ll.rel, ll.depth, emit, &ll.text) {
+            if pending_break || lines_on_page >= opts.plen {
+                page_no += 1;
+                out.push_str(&page_header(page_no, &cur_file, &title, opts.timestamp));
+                lines_on_page = HEADER_LINES;
+                pending_break = false;
+            }
+            out.push_str(&row);
+            lines_on_page += 1;
+        }
+    }
+    out.push_str(&body_footer(list_lines.len()));
+    out
+}
+
+/// One page-header block (6 lines, CRLF), led by a form-feed except on page 1.
+fn page_header(page_no: usize, file: &str, title: &str, timestamp: &str) -> String {
+    const BANNER: &str = "Copyright 1993, Motorola Macro Assembler   Version 4.6";
+    let page = format!("Page {page_no}");
+    let pad = HEADER_WIDTH.saturating_sub(BANNER.len() + page.len());
+    let ff = if page_no == 1 { "" } else { "\x0c" };
+    format!(
+        "{ff}{BANNER}{:pad$}{page}\r\n\
+         68HC16 - {file} - {timestamp}\r\n\
+         {title}\r\n\
+         \r\n\
+         Abs. Rel.   Loc    Obj. code   Source line\r\n\
+         ---- ----   ------ ---------   -----------\r\n",
+        "",
+    )
+}
+
+/// The value of the last `TTL` directive in the source (the title MASM carries
+/// into page 1 from pass 1), if any.
+fn last_ttl(list_lines: &[ListLine]) -> Option<String> {
+    list_lines
+        .iter()
+        .rev()
+        .filter(|l| l.assembled && split_line(&l.text).op.map(|o| o.eq_ignore_ascii_case("ttl")).unwrap_or(false))
+        .find_map(|l| ttl_title(&l.text))
+}
+
+/// The title string of a `TTL "..."` directive (quotes stripped).
+fn ttl_title(text: &str) -> Option<String> {
+    split_line(text).operand.map(|o| o.trim().trim_matches('"').to_string())
+}
+
+/// The filename an `INCLUDE` directive names, as written (the header shows it
+/// verbatim, e.g. `INITkjs.ASM`).
+fn include_name(text: &str) -> String {
+    split_line(text)
+        .operand
+        .and_then(|o| o.split_whitespace().next())
+        .unwrap_or("")
+        .trim_matches('"')
+        .to_string()
 }
 
 /// Render the Symbol Table block (no surrounding page headers). `sections` is the

@@ -108,6 +108,18 @@ pub fn assemble(req: &AssembleRequest) -> AssembleResult {
         let body = output::listing::body(&obj.list_lines, &obj.line_emit);
         let _ = std::fs::write(&path, output::encode_latin1(&body));
     }
+    // Dev validation hook: dump the paginated body (env HC16_LSTPAGE). Uses the
+    // oracle's top-file name and a fixed timestamp; the real per-page timestamp is
+    // non-deterministic (wall-clock), so comparisons normalise it.
+    if let Ok(path) = std::env::var("HC16_LSTPAGE") {
+        let opts = output::listing::PageOpts {
+            top_file: "IN.ASM",
+            timestamp: "Mon Jun 15 09:39:05 ",
+            plen: 60,
+        };
+        let page = output::listing::paginate_body(&obj.list_lines, &obj.line_emit, &opts);
+        let _ = std::fs::write(&path, output::encode_latin1(&page));
+    }
 
     let s19_path = req.output_dir.join(format!("{stem}.S19"));
     // HEX.exe converts `<name>.OBJ`, and records that input name in the S0 header.
