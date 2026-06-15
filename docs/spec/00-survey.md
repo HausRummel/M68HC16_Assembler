@@ -141,10 +141,26 @@ The instruction set is now complete for corpus usage, including register-list
 (`movb`/`movw`, X-indexed only), `rmac` (packed nibble offsets), and char
 literals. Validated by a second golden fixture (`regmov.asm`/`.bytes`).
 
-**Not yet:** macros, conditional assembly (`ifxx`/`elsec`/`endc`), `include`;
-sections/relocation + linker; listing/map output; byte-exact S0/S9 record
-matching; and the "code must be assembled at an even address" diagnostic (a real
-MASM rule observed during fixture work — instructions may not start at odd LC).
+### Preprocessing: includes, macros, conditionals (implemented)
+
+`encoder.rs` preprocesses once before the passes: recursive `include` splicing
+(relative to each file's directory) and macro expansion (`NAME: macro`…`endm`,
+`\1`..`\9` argument substitution). The passes evaluate conditional assembly
+(`if/ifgt/iflt/ifge/ifle/ifeq/ifne/ifdef/ifndef/ifc/ifnc` with `else`/`elsec` and
+`endc`/`endi`), handle `fail`, and treat listing/section/linkage directives
+(`mlist`, `ttl`, `page`, `asct`, `xdef`, …) as no-ops for now.
+
+Also added five inherent instructions the binary table-walk had skipped —
+`abx/aba/aby/abz/ace` (e.g. `abx`=`37 4F`) — so the ISA table is now 221
+mnemonics. Note: the corpus turned out to define exactly one macro (`BOUNDARY`)
+and use conditionals only inside it; `abx/aba` are real instructions, not macros.
+
+Validated by golden fixtures `prep.*` (macro + conditionals + `abx`/`aba`) and a
+unit test for `include`.
+
+**Not yet:** sections/relocation + linker (the `*sct`/`x*` no-ops are placeholders);
+listing/map output; byte-exact S0/S9 record matching; the "code must be assembled
+at an even address" diagnostic; assembling a full real corpus module end-to-end.
 
 ## Output formats
 

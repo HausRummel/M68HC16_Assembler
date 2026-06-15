@@ -5,6 +5,21 @@
 use super::{InsnDef, ModeEntry, Mode, IdxReg};
 
 pub static INSTRUCTIONS: &[InsnDef] = &[
+    InsnDef { mnemonic: "aba", modes: &[
+        ModeEntry { mode: Mode::Inherent, prefix: &[0x37, 0x0B], operand_len: 0 },
+    ] },
+    InsnDef { mnemonic: "abx", modes: &[
+        ModeEntry { mode: Mode::Inherent, prefix: &[0x37, 0x4F], operand_len: 0 },
+    ] },
+    InsnDef { mnemonic: "aby", modes: &[
+        ModeEntry { mode: Mode::Inherent, prefix: &[0x37, 0x5F], operand_len: 0 },
+    ] },
+    InsnDef { mnemonic: "abz", modes: &[
+        ModeEntry { mode: Mode::Inherent, prefix: &[0x37, 0x6F], operand_len: 0 },
+    ] },
+    InsnDef { mnemonic: "ace", modes: &[
+        ModeEntry { mode: Mode::Inherent, prefix: &[0x37, 0x22], operand_len: 0 },
+    ] },
     InsnDef { mnemonic: "adca", modes: &[
         ModeEntry { mode: Mode::Imm8, prefix: &[0x73], operand_len: 1 },
         ModeEntry { mode: Mode::Ext, prefix: &[0x17, 0x73], operand_len: 2 },

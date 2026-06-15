@@ -5,6 +5,9 @@
 //! operand bytes in that mode's layout. The driver iterates to a fixpoint so
 //! forward references and operand-size selection converge.
 
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+
 use crate::diag::Diagnostic;
 use crate::expr::{self, EvalError};
 use crate::isa::{self, IdxReg, InsnDef, Mode, ModeEntry};
@@ -31,37 +34,207 @@ impl Object {
     }
 }
 
-/// Assemble a whole source string. Runs passes until the emitted image is stable
-/// (forward references and Ind8/Ind16 sizing settle), then returns the result.
+/// Assemble a source string (no base directory, so `include` can't resolve files).
 pub fn assemble_source(src: &str) -> Object {
+    assemble_source_in(src, None)
+}
+
+/// Assemble a source string, resolving `include` files relative to `base_dir`.
+/// Includes and macros are expanded once up front; the result is then run through
+/// the fixpoint passes (which evaluate conditionals using the live location
+/// counter and symbols).
+pub fn assemble_source_in(src: &str, base_dir: Option<&Path>) -> Object {
+    let raw: Vec<String> = src.lines().map(str::to_string).collect();
+    let lines = match preprocess(&raw, base_dir) {
+        Ok(l) => l,
+        Err(diags) => {
+            return Object { diagnostics: diags, ..Object::default() };
+        }
+    };
+
     let mut symbols = SymbolTable::new();
     let mut prev: Option<Vec<(u32, u8)>> = None;
     for _ in 0..8 {
-        let obj = run_pass(src, &symbols);
+        let obj = run_pass(&lines, &symbols);
         if prev.as_ref() == Some(&obj.data) {
             return obj;
         }
         prev = Some(obj.data.clone());
         symbols = obj.symbols.clone();
     }
-    // Did not converge in the pass budget; return the last attempt with a note.
-    let mut obj = run_pass(src, &symbols);
+    let mut obj = run_pass(&lines, &symbols);
     obj.diagnostics
         .push(Diagnostic::warning("assembly did not converge (possible phase error)"));
     obj
 }
 
-fn run_pass(src: &str, sym_in: &SymbolTable) -> Object {
+// ---- Preprocessing: includes + macro expansion ------------------------------
+
+/// Expand `include` files and macros into a flat line list. These are textual
+/// transforms independent of assembly state, so they run once.
+fn preprocess(raw: &[String], base: Option<&Path>) -> Result<Vec<String>, Vec<Diagnostic>> {
+    let mut diags = Vec::new();
+    let included = expand_includes(raw, base, 0, &mut diags);
+    if !diags.is_empty() {
+        return Err(diags);
+    }
+    let expanded = expand_macros(&included, &mut diags);
+    if !diags.is_empty() {
+        return Err(diags);
+    }
+    Ok(expanded)
+}
+
+fn expand_includes(lines: &[String], base: Option<&Path>, depth: u32, diags: &mut Vec<Diagnostic>) -> Vec<String> {
+    if depth > 32 {
+        diags.push(Diagnostic::error("include nesting too deep"));
+        return Vec::new();
+    }
+    let mut out = Vec::new();
+    for line in lines {
+        let p = split_line(line);
+        if p.op.map(|o| o.eq_ignore_ascii_case("include")).unwrap_or(false) {
+            let Some(name) = p.operand.map(|s| s.trim().trim_matches('"')) else {
+                diags.push(Diagnostic::error("include requires a filename"));
+                continue;
+            };
+            let path = base.map(|b| b.join(name)).unwrap_or_else(|| PathBuf::from(name));
+            match std::fs::read_to_string(&path) {
+                Ok(text) => {
+                    let sub: Vec<String> = text.lines().map(str::to_string).collect();
+                    out.extend(expand_includes(&sub, path.parent(), depth + 1, diags));
+                }
+                Err(e) => diags.push(Diagnostic::error(format!("cannot include {}: {e}", path.display()))),
+            }
+        } else {
+            out.push(line.clone());
+        }
+    }
+    out
+}
+
+fn expand_macros(lines: &[String], diags: &mut Vec<Diagnostic>) -> Vec<String> {
+    // Collect `NAME: macro` … `endm` definitions, removing them from the stream.
+    let mut macros: HashMap<String, Vec<String>> = HashMap::new();
+    let mut body: Vec<String> = Vec::new();
+    let mut current: Option<(String, Vec<String>)> = None;
+
+    for line in lines {
+        let p = split_line(line);
+        let op = p.op.map(|o| o.to_ascii_lowercase());
+        if let Some((name, lines)) = current.as_mut() {
+            if op.as_deref() == Some("endm") {
+                macros.insert(name.clone(), std::mem::take(lines));
+                current = None;
+            } else {
+                lines.push(line.clone());
+            }
+            continue;
+        }
+        if op.as_deref() == Some("macro") {
+            match p.label {
+                Some(name) => current = Some((name.to_string(), Vec::new())),
+                None => diags.push(Diagnostic::error("macro definition without a name")),
+            }
+            continue;
+        }
+        body.push(line.clone());
+    }
+    if current.is_some() {
+        diags.push(Diagnostic::error("macro not closed with endm"));
+    }
+
+    expand_invocations(&body, &macros, diags, 0)
+}
+
+fn expand_invocations(lines: &[String], macros: &HashMap<String, Vec<String>>, diags: &mut Vec<Diagnostic>, depth: u32) -> Vec<String> {
+    if depth > 64 {
+        diags.push(Diagnostic::error("macro expansion too deep (recursion?)"));
+        return Vec::new();
+    }
+    let mut out = Vec::new();
+    for line in lines {
+        let p = split_line(line);
+        if let Some(op) = p.op {
+            if let Some(mbody) = macros.get(op) {
+                let args: Vec<String> = p
+                    .operand
+                    .map(|o| split_top_commas(o).iter().map(|s| s.trim().to_string()).collect())
+                    .unwrap_or_default();
+                let mut expanded = Vec::new();
+                if let Some(lbl) = p.label {
+                    expanded.push(format!("{lbl}:"));
+                }
+                for bl in mbody {
+                    expanded.push(substitute_params(bl, &args));
+                }
+                out.extend(expand_invocations(&expanded, macros, diags, depth + 1));
+                continue;
+            }
+        }
+        out.push(line.clone());
+    }
+    out
+}
+
+/// Replace `\1`..`\9` with the corresponding macro argument (empty if absent).
+fn substitute_params(line: &str, args: &[String]) -> String {
+    let chars: Vec<char> = line.chars().collect();
+    let mut out = String::with_capacity(line.len());
+    let mut i = 0;
+    while i < chars.len() {
+        if chars[i] == '\\' && i + 1 < chars.len() && chars[i + 1].is_ascii_digit() {
+            let n = chars[i + 1] as usize - '0' as usize;
+            if n >= 1 && n <= args.len() {
+                out.push_str(&args[n - 1]);
+            }
+            i += 2;
+        } else {
+            out.push(chars[i]);
+            i += 1;
+        }
+    }
+    out
+}
+
+fn run_pass(lines: &[String], sym_in: &SymbolTable) -> Object {
     let mut out = Object::default();
     let mut lc: u32 = 0;
     // Section origin (first `org`); used to pad the section to an even length, which
     // MASM does automatically ("section has an odd length; fill byte was added").
     let mut origin: Option<u32> = None;
+    let mut cond_stack: Vec<CondFrame> = Vec::new();
 
-    for (idx, raw_line) in src.lines().enumerate() {
+    for (idx, raw_line) in lines.iter().enumerate() {
         let lineno = (idx + 1) as u32;
         let line = split_line(raw_line);
         let op_lower = line.op.map(|o| o.to_ascii_lowercase());
+
+        // Conditional assembly: keep the stack balanced even in skipped regions.
+        if let Some(op) = op_lower.as_deref() {
+            if is_if_directive(op) {
+                let pe = cond_emitting(&cond_stack);
+                let cond = pe && eval_cond(op, line.operand, lc, sym_in).unwrap_or(false);
+                cond_stack.push(CondFrame { parent_emit: pe, taken: cond, emitting: cond });
+                continue;
+            }
+            if matches!(op, "else" | "elsec") {
+                match cond_stack.last_mut() {
+                    Some(f) => f.emitting = f.parent_emit && !f.taken,
+                    None => err(&mut out, lineno, "else/elsec without a matching if".into()),
+                }
+                continue;
+            }
+            if matches!(op, "endc" | "endi" | "endif") {
+                if cond_stack.pop().is_none() {
+                    err(&mut out, lineno, "endc without a matching if".into());
+                }
+                continue;
+            }
+        }
+        if !cond_emitting(&cond_stack) {
+            continue;
+        }
 
         // A label takes the current LC, except `equ`/`set` which take the operand.
         if let Some(lbl) = line.label {
@@ -82,6 +255,18 @@ fn run_pass(src: &str, sym_in: &SymbolTable) -> Object {
         }
 
         let Some(op) = op_lower.as_deref() else { continue };
+
+        // Listing/section/linkage directives that do not affect emitted bytes yet.
+        if IGNORED_DIRECTIVES.contains(&op) {
+            continue;
+        }
+        // `fail` forces an assembly error (used inside conditionals).
+        if op == "fail" {
+            let msg = line.operand.unwrap_or("").trim().trim_matches('"');
+            err(&mut out, lineno, format!("fail: {msg}"));
+            continue;
+        }
+
         match op {
             "equ" | "set" => {} // handled with the label above
             "org" => match eval1(line.operand, lc, sym_in) {
@@ -451,6 +636,56 @@ fn split_top_commas(s: &str) -> Vec<&str> {
     parts
 }
 
+// ---- Conditional assembly ---------------------------------------------------
+
+/// One `if … [else] … endc` frame. `emitting` is whether this branch is currently
+/// active; `parent_emit` is whether the enclosing context was active.
+struct CondFrame {
+    parent_emit: bool,
+    taken: bool,
+    emitting: bool,
+}
+
+fn cond_emitting(stack: &[CondFrame]) -> bool {
+    stack.last().map_or(true, |f| f.emitting)
+}
+
+fn is_if_directive(op: &str) -> bool {
+    matches!(
+        op,
+        "if" | "ifgt" | "iflt" | "ifge" | "ifle" | "ifeq" | "ifne" | "ifdef" | "ifndef" | "ifc" | "ifnc"
+    )
+}
+
+fn eval_cond(op: &str, operand: Option<&str>, lc: u32, sym: &SymbolTable) -> Option<bool> {
+    let num = |e: &str| expr::eval(e, lc, sym).ok();
+    match op {
+        "ifgt" => operand.and_then(num).map(|v| v > 0),
+        "iflt" => operand.and_then(num).map(|v| v < 0),
+        "ifge" => operand.and_then(num).map(|v| v >= 0),
+        "ifle" => operand.and_then(num).map(|v| v <= 0),
+        "ifeq" => operand.and_then(num).map(|v| v == 0),
+        "ifne" | "if" => operand.and_then(num).map(|v| v != 0),
+        "ifdef" => operand.map(|s| sym.contains(s.trim())),
+        "ifndef" => operand.map(|s| !sym.contains(s.trim())),
+        "ifc" | "ifnc" => operand.map(|o| {
+            let parts = split_top_commas(o);
+            let eq = parts.len() == 2 && parts[0].trim() == parts[1].trim();
+            if op == "ifc" { eq } else { !eq }
+        }),
+        _ => None,
+    }
+}
+
+/// Listing/section/linkage directives that don't yet affect the emitted image.
+/// (Section + relocation support will replace the `*sct`/`x*` no-ops.)
+const IGNORED_DIRECTIVES: &[&str] = &[
+    "mlist", "alist", "clist", "list", "nolist", "nol", "llen", "plen", "page", "nopage",
+    "newpage", "title", "ttl", "sttl", "spc", "tabs", "opt", "base", "lll",
+    "asct", "bsct", "psct", "dsct", "csct", "idsct", "ipsct", "section",
+    "xdef", "xref", "xrefb", "global", "public", "extern", "regdef", "lreg", "file", "name", "idnt",
+];
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -521,5 +756,46 @@ mod tests {
             hex(&obj.bytes()),
             "34 03 35 60 34 7F 37 FE 10 00 20 00 30 08 20 00 32 08 20 00 FB 46"
         );
+    }
+
+    #[test]
+    fn macros_and_conditionals() {
+        let src = "        org $2000\n\
+                   TWO:    macro\n\
+                   \x20       ldaa #\\1\n\
+                   \x20       ldab #\\2\n\
+                   \x20       endm\n\
+                   \x20       TWO $11,$22\n\
+                   \x20       ifgt 5-3\n\
+                   \x20       ldx #$aaaa\n\
+                   \x20       elsec\n\
+                   \x20       ldx #$bbbb\n\
+                   \x20       endc\n\
+                   \x20       ifne 0\n\
+                   \x20       ldy #$cccc\n\
+                   \x20       endc\n\
+                   \x20       abx\n\
+                   \x20       end\n";
+        let obj = asm(src);
+        assert!(!obj.has_errors(), "diagnostics: {:?}", obj.diagnostics);
+        // TWO -> 75 11 F5 22 ; ifgt true -> 37 BC AA AA ; ifne false skipped ; abx -> 37 4F
+        assert_eq!(hex(&obj.bytes()), "75 11 F5 22 37 BC AA AA 37 4F");
+    }
+
+    #[test]
+    fn include_splices_a_file() {
+        let dir = std::env::temp_dir().join("hc16_inc_test");
+        std::fs::create_dir_all(&dir).unwrap();
+        let inc = dir.join("INC.ASM");
+        std::fs::write(&inc, "        ldab #$34\r\n").unwrap();
+        let src = "        org $2000\n\
+                   \x20       ldaa #$12\n\
+                   \x20       include INC.ASM\n\
+                   \x20       rts\n\
+                   \x20       end\n";
+        let obj = assemble_source_in(src, Some(&dir));
+        assert!(!obj.has_errors(), "diagnostics: {:?}", obj.diagnostics);
+        assert_eq!(hex(&obj.bytes()), "75 12 F5 34 27 F7");
+        let _ = std::fs::remove_file(&inc);
     }
 }

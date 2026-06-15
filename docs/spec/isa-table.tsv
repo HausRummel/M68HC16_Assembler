@@ -1,4 +1,9 @@
 ﻿mnemonic	mode	prefix	operand_len	total
+aba	inh	37 0B	0	2
+abx	inh	37 4F	0	2
+aby	inh	37 5F	0	2
+abz	inh	37 6F	0	2
+ace	inh	37 22	0	2
 adca	eindx	27 43	0	2
 adca	eindy	27 53	0	2
 adca	eindz	27 63	0	2

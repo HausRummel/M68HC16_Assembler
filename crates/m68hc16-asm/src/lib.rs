@@ -77,7 +77,7 @@ pub fn assemble(req: &AssembleRequest) -> AssembleResult {
         }
     };
 
-    let obj = encoder::assemble_source(&src);
+    let obj = encoder::assemble_source_in(&src, req.input.parent());
     result.diagnostics = obj.diagnostics;
     if result.has_errors() {
         return result;
