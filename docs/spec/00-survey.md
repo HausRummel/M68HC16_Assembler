@@ -136,9 +136,15 @@ Validation: a 24-instruction snippet (`tests/fixtures/public/smoke.asm`) assembl
 **byte-for-byte identical** to the real MASM S19 image (`smoke.bytes`), checked by
 the `golden_fixtures` test. `cargo test` is green.
 
-**Not yet:** register-list (`pshm`/`pulm`), memory-move (`movb`/`movw`), `rmac`,
-char literals in `fcb`; macros, conditionals, includes, sections/relocation +
-linker; listing/map output; byte-exact S0/S9 record matching.
+The instruction set is now complete for corpus usage, including register-list
+(`pshm`/`pulm` — pull masks are the bit-reverse of push), memory-move
+(`movb`/`movw`, X-indexed only), `rmac` (packed nibble offsets), and char
+literals. Validated by a second golden fixture (`regmov.asm`/`.bytes`).
+
+**Not yet:** macros, conditional assembly (`ifxx`/`elsec`/`endc`), `include`;
+sections/relocation + linker; listing/map output; byte-exact S0/S9 record
+matching; and the "code must be assembled at an even address" diagnostic (a real
+MASM rule observed during fixture work — instructions may not start at odd LC).
 
 ## Output formats
 

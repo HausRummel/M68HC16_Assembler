@@ -255,11 +255,69 @@ fn encode_instruction(insn: &InsnDef, operand: Option<&str>, lc: u32, sym: &Symb
         return Ok(Enc { bytes, unresolved });
     }
 
-    if mode_of(insn, |m| matches!(m, Mode::RegList)).is_some() {
-        return Err(format!("`{}`: register-list ops not yet supported", insn.mnemonic));
+    // Register list (pshm/pulm): OR the per-register mask bits. pulm uses the
+    // bit-reversed assignment of pshm so a push/pull pair restores order.
+    if let Some(e) = mode_of(insn, |m| matches!(m, Mode::RegList)) {
+        let pull = insn.mnemonic.eq_ignore_ascii_case("pulm");
+        let mut mask = 0u8;
+        for part in split_top_commas(raw) {
+            let r = part.trim();
+            mask |= reg_mask_bit(r, pull)
+                .ok_or_else(|| format!("`{}`: unknown register `{r}`", insn.mnemonic))?;
+        }
+        let mut bytes = e.prefix.to_vec();
+        bytes.push(mask);
+        return Ok(Enc { bytes, unresolved });
     }
-    if mode_of(insn, |m| matches!(m, Mode::MovMm | Mode::MovIdxExt | Mode::MovExtIdx | Mode::Mac)).is_some() {
-        return Err(format!("`{}`: memory-move/MAC ops not yet supported", insn.mnemonic));
+
+    // Memory move (movb/movw). Indexed forms support X only.
+    if mode_of(insn, |m| matches!(m, Mode::MovMm | Mode::MovIdxExt | Mode::MovExtIdx)).is_some() {
+        let parts: Vec<&str> = split_top_commas(raw).iter().map(|s| s.trim()).collect();
+        match parts.as_slice() {
+            [src, dst] => {
+                let e = mode_of(insn, |m| matches!(m, Mode::MovMm)).unwrap();
+                let s = eval_or_zero(src, lc, sym, &mut unresolved)?;
+                let d = eval_or_zero(dst, lc, sym, &mut unresolved)?;
+                let mut bytes = e.prefix.to_vec();
+                emit_be(&mut bytes, s, 2);
+                emit_be(&mut bytes, d, 2);
+                return Ok(Enc { bytes, unresolved });
+            }
+            [off, reg, dst] if is_x_reg(reg) => {
+                let e = mode_of(insn, |m| matches!(m, Mode::MovIdxExt))
+                    .ok_or_else(|| format!("`{}`: no indexed-source move", insn.mnemonic))?;
+                let o = eval_or_zero(off, lc, sym, &mut unresolved)?;
+                let d = eval_or_zero(dst, lc, sym, &mut unresolved)?;
+                let mut bytes = e.prefix.to_vec();
+                emit_be(&mut bytes, o, 1);
+                emit_be(&mut bytes, d, 2);
+                return Ok(Enc { bytes, unresolved });
+            }
+            [src, off, reg] if is_x_reg(reg) => {
+                let e = mode_of(insn, |m| matches!(m, Mode::MovExtIdx))
+                    .ok_or_else(|| format!("`{}`: no indexed-dest move", insn.mnemonic))?;
+                let s = eval_or_zero(src, lc, sym, &mut unresolved)?;
+                let o = eval_or_zero(off, lc, sym, &mut unresolved)?;
+                let mut bytes = e.prefix.to_vec();
+                emit_be(&mut bytes, o, 1);
+                emit_be(&mut bytes, s, 2);
+                return Ok(Enc { bytes, unresolved });
+            }
+            _ => return Err(format!("`{}`: bad move operand (index register must be X)", insn.mnemonic)),
+        }
+    }
+
+    // rmac: two signed offsets packed into one byte (high nibble, low nibble).
+    if let Some(e) = mode_of(insn, |m| matches!(m, Mode::Mac)) {
+        let parts = split_top_commas(raw);
+        if parts.len() != 2 {
+            return Err(format!("`{}` expects two offsets", insn.mnemonic));
+        }
+        let a = eval_or_zero(parts[0].trim(), lc, sym, &mut unresolved)?;
+        let b = eval_or_zero(parts[1].trim(), lc, sym, &mut unresolved)?;
+        let mut bytes = e.prefix.to_vec();
+        bytes.push(((a as u8 & 0x0F) << 4) | (b as u8 & 0x0F));
+        return Ok(Enc { bytes, unresolved });
     }
 
     // Indexed or accumulator-E indexed: `<base>,<reg>`.
@@ -337,6 +395,26 @@ fn emit_be(buf: &mut Vec<u8>, value: i64, width: u8) {
     for shift in (0..width).rev() {
         buf.push((v >> (8 * shift)) as u8);
     }
+}
+
+fn is_x_reg(s: &str) -> bool {
+    s.trim().eq_ignore_ascii_case("x")
+}
+
+/// Mask bit for a `pshm`/`pulm` register. Push order d,e,x,y,z,k,ccr = bits 0..6;
+/// pull uses the bit-reversed assignment.
+fn reg_mask_bit(name: &str, pull: bool) -> Option<u8> {
+    let idx = match name.to_ascii_lowercase().as_str() {
+        "d" => 0,
+        "e" => 1,
+        "x" => 2,
+        "y" => 3,
+        "z" => 4,
+        "k" => 5,
+        "ccr" => 6,
+        _ => return None,
+    };
+    Some(if pull { 1 << (6 - idx) } else { 1 << idx })
 }
 
 /// If `raw` ends in `,x` / `,y` / `,z`, return the base and the index register.
@@ -424,5 +502,24 @@ mod tests {
         assert!(!obj.has_errors(), "diagnostics: {:?}", obj.diagnostics);
         // 7 data bytes is an odd section length, so MASM appends an FF fill byte.
         assert_eq!(hex(&obj.bytes()), "12 34 41 12 34 56 78 FF");
+    }
+
+    #[test]
+    fn reglist_mov_and_mac() {
+        let src = "        org $2000\n\
+                   \x20       pshm d,e\n\
+                   \x20       pulm d,e\n\
+                   \x20       pshm d,e,x,y,z,k,ccr\n\
+                   \x20       movb $1000,$2000\n\
+                   \x20       movb $08,x,$2000\n\
+                   \x20       movb $2000,$08,x\n\
+                   \x20       rmac $04,$06\n\
+                   \x20       end\n";
+        let obj = asm(src);
+        assert!(!obj.has_errors(), "diagnostics: {:?}", obj.diagnostics);
+        assert_eq!(
+            hex(&obj.bytes()),
+            "34 03 35 60 34 7F 37 FE 10 00 20 00 30 08 20 00 32 08 20 00 FB 46"
+        );
     }
 }
