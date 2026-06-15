@@ -31,15 +31,16 @@ pub fn split_line(line: &str) -> Line<'_> {
         return Line { comment: Some(trimmed), ..Line::default() };
     }
 
-    let has_label = !line.starts_with([' ', '\t']);
+    let col1_label = !line.starts_with([' ', '\t']);
     let mut rest = line.trim_start();
 
+    // A label is a column-1 token, or any token ending in `:` (may be indented).
     let mut label = None;
-    if has_label {
-        let end = rest.find([' ', '\t']).unwrap_or(rest.len());
-        let name = rest[..end].strip_suffix(':').unwrap_or(&rest[..end]);
+    let first_end = rest.find([' ', '\t']).unwrap_or(rest.len());
+    if col1_label || rest[..first_end].ends_with(':') {
+        let name = rest[..first_end].strip_suffix(':').unwrap_or(&rest[..first_end]);
         label = Some(name);
-        rest = rest[end..].trim_start();
+        rest = rest[first_end..].trim_start();
     }
 
     // Operation: first token, unless what remains is a comment (`;` or `*`).
@@ -69,14 +70,15 @@ pub fn split_line(line: &str) -> Line<'_> {
     Line { label, op, operand, comment }
 }
 
-/// Index of the first unquoted whitespace in `s` (end of the operand token).
+/// Index of the operand token's end: the first unquoted whitespace or `;`
+/// (a `;` with no preceding space still starts the comment).
 fn operand_end(s: &str) -> usize {
     let (mut sq, mut dq) = (false, false);
     for (i, &b) in s.as_bytes().iter().enumerate() {
         match b {
             b'\'' if !dq => sq = !sq,
             b'"' if !sq => dq = !dq,
-            b' ' | b'\t' if !sq && !dq => return i,
+            (b' ' | b'\t' | b';') if !sq && !dq => return i,
             _ => {}
         }
     }

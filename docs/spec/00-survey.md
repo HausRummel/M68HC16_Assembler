@@ -175,9 +175,23 @@ extended bit form, so these per-register modes are missing from the ISA table �
 the cause of most remaining errors (and, likely by cascade, the branch-range and
 undefined-symbol errors, since a failed instruction shifts all later addresses).
 
-**Not yet:** indexed bit-op modes (next); sections/relocation + linker (the
-`*sct`/`x*` no-ops are placeholders); listing/map output; byte-exact S0/S9; the
-even-address-code diagnostic.
+Iterating the run drove the error count from ~12,400 to **0**: indexed bit-op
+modes added (`bset/bclr/brset/brclr` × X/Y/Z; indexed bit-branches use rel8);
+`PAGE(x)` built-in (bank byte = `(x>>16)&0xFF`); `EVEN`/`longeven` fill;
+`EQU a,b` takes the first value; `FCB`/`FDB "str"` emit ASCII bytes; the lexer's
+operand field is one quote-aware token ending at whitespace/`;`; indented `:`
+labels; lossy reads; and — crucially — the fixpoint pass budget raised to 40 (a
+25k-line file needs many passes to settle Ind8/Ind16 sizing, and an unconverged
+layout produced thousands of spurious branch-range errors).
+
+**The full top-level corpus file now assembles with 0 diagnostics** and emits a
+~473 KB S-record image.
+
+**Not yet — byte-exact validation:** the existing reference `.S19` looks stale, so
+the next step is a *fresh* oracle build of the current top file (run MASM over the
+whole include tree in DOSBox) and a data-byte diff. Then: sections/relocation +
+linker (the `*sct`/`x*` no-ops are placeholders, which likely matters for exactness),
+listing/map output, byte-exact S0/S9 record formatting, even-address-code diagnostic.
 
 ## Output formats
 

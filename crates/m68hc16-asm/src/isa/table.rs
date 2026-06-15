@@ -243,6 +243,9 @@ pub static INSTRUCTIONS: &[InsnDef] = &[
     ] },
     InsnDef { mnemonic: "bclr", modes: &[
         ModeEntry { mode: Mode::BitExt, prefix: &[0x38], operand_len: 3 },
+        ModeEntry { mode: Mode::BitInd(IdxReg::X), prefix: &[0x17, 0x08], operand_len: 2 },
+        ModeEntry { mode: Mode::BitInd(IdxReg::Y), prefix: &[0x17, 0x18], operand_len: 2 },
+        ModeEntry { mode: Mode::BitInd(IdxReg::Z), prefix: &[0x17, 0x28], operand_len: 2 },
     ] },
     InsnDef { mnemonic: "bcs", modes: &[
         ModeEntry { mode: Mode::Rel8, prefix: &[0xB5], operand_len: 1 },
@@ -308,12 +311,21 @@ pub static INSTRUCTIONS: &[InsnDef] = &[
     ] },
     InsnDef { mnemonic: "brclr", modes: &[
         ModeEntry { mode: Mode::BitBrExt, prefix: &[0x3A], operand_len: 5 },
+        ModeEntry { mode: Mode::BitBrInd(IdxReg::X), prefix: &[0xCB], operand_len: 3 },
+        ModeEntry { mode: Mode::BitBrInd(IdxReg::Y), prefix: &[0xDB], operand_len: 3 },
+        ModeEntry { mode: Mode::BitBrInd(IdxReg::Z), prefix: &[0xEB], operand_len: 3 },
     ] },
     InsnDef { mnemonic: "brset", modes: &[
         ModeEntry { mode: Mode::BitBrExt, prefix: &[0x3B], operand_len: 5 },
+        ModeEntry { mode: Mode::BitBrInd(IdxReg::X), prefix: &[0x8B], operand_len: 3 },
+        ModeEntry { mode: Mode::BitBrInd(IdxReg::Y), prefix: &[0x9B], operand_len: 3 },
+        ModeEntry { mode: Mode::BitBrInd(IdxReg::Z), prefix: &[0xAB], operand_len: 3 },
     ] },
     InsnDef { mnemonic: "bset", modes: &[
         ModeEntry { mode: Mode::BitExt, prefix: &[0x39], operand_len: 3 },
+        ModeEntry { mode: Mode::BitInd(IdxReg::X), prefix: &[0x17, 0x09], operand_len: 2 },
+        ModeEntry { mode: Mode::BitInd(IdxReg::Y), prefix: &[0x17, 0x19], operand_len: 2 },
+        ModeEntry { mode: Mode::BitInd(IdxReg::Z), prefix: &[0x17, 0x29], operand_len: 2 },
     ] },
     InsnDef { mnemonic: "bsr", modes: &[
         ModeEntry { mode: Mode::Rel8, prefix: &[0x36], operand_len: 1 },

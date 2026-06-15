@@ -156,6 +156,9 @@ asrd	inh	27 FD	0	2
 asre	inh	27 7D	0	2
 bcc	rel8	B4	1	2
 bclr	bit	38	3	4
+bclr	bitix	17 08	2	4
+bclr	bitiy	17 18	2	4
+bclr	bitiz	17 28	2	4
 bcs	rel8	B5	1	2
 beq	rel8	B7	1	2
 bge	rel8	BC	1	2
@@ -191,8 +194,17 @@ bne	rel8	B6	1	2
 bpl	rel8	BA	1	2
 bra	rel8	B0	1	2
 brclr	bitbr	3A	5	6
+brclr	bitbrix	CB	3	4
+brclr	bitbriy	DB	3	4
+brclr	bitbriz	EB	3	4
 brset	bitbr	3B	5	6
+brset	bitbrix	8B	3	4
+brset	bitbriy	9B	3	4
+brset	bitbriz	AB	3	4
 bset	bit	39	3	4
+bset	bitix	17 09	2	4
+bset	bitiy	17 19	2	4
+bset	bitiz	17 29	2	4
 bsr	rel8	36	1	2
 bvc	rel8	B8	1	2
 bvs	rel8	B9	1	2

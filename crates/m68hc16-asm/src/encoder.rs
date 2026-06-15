@@ -54,7 +54,7 @@ pub fn assemble_source_in(src: &str, base_dir: Option<&Path>) -> Object {
 
     let mut symbols = SymbolTable::new();
     let mut prev: Option<Vec<(u32, u8)>> = None;
-    for _ in 0..8 {
+    for _ in 0..40 {
         let obj = run_pass(&lines, &symbols);
         if prev.as_ref() == Some(&obj.data) {
             return obj;
@@ -244,7 +244,9 @@ fn run_pass(lines: &[String], sym_in: &SymbolTable) -> Object {
             match op_lower.as_deref() {
                 Some("equ") | Some("set") => {
                     if let Some(operand) = line.operand {
-                        match expr::eval(operand, lc, sym_in) {
+                        // MASM's `EQU a,b` takes the first value.
+                        let first = split_top_commas(operand).first().map_or(operand, |s| s.trim());
+                        match expr::eval(first, lc, sym_in) {
                             Ok(v) => out.symbols.define(lbl, v),
                             Err(EvalError::Undefined(_)) => {} // resolves on a later pass
                             Err(EvalError::Syntax(s)) => err(&mut out, lineno, s),
@@ -351,6 +353,14 @@ fn emit_list(out: &mut Object, lc: &mut u32, line: u32, operand: Option<&str>, s
     };
     for item in split_top_commas(operand) {
         let item = item.trim();
+        // A `"…"` string emits its ASCII bytes (both fcb and fdb).
+        if item.len() >= 2 && item.starts_with('"') && item.ends_with('"') {
+            for &b in item[1..item.len() - 1].as_bytes() {
+                out.data.push((*lc, b));
+                *lc = lc.wrapping_add(1);
+            }
+            continue;
+        }
         match expr::eval(item, *lc, sym) {
             Ok(v) => push_be(out, lc, v, width),
             Err(EvalError::Undefined(_)) => push_be(out, lc, 0, width), // placeholder this pass
@@ -433,35 +443,67 @@ fn encode_instruction(insn: &InsnDef, operand: Option<&str>, lc: u32, sym: &Symb
         return Ok(Enc { bytes, unresolved });
     }
 
-    // Bit-conditional branch: addr,#mask,target.
-    if let Some(e) = mode_of(insn, |m| matches!(m, Mode::BitBrExt)) {
-        let parts = split_top_commas(raw);
-        if parts.len() != 3 {
-            return Err(format!("`{}` expects addr,#mask,target", insn.mnemonic));
+    // Bit-conditional branch: extended `addr,#mask,target` (rel16) or indexed
+    // `off,reg,#mask,target` (rel8). The CPU16 prefetch makes rel = target-(lc+6).
+    if mode_of(insn, |m| matches!(m, Mode::BitBrExt | Mode::BitBrInd(_))).is_some() {
+        let parts: Vec<&str> = split_top_commas(raw).iter().map(|s| s.trim()).collect();
+        match parts.as_slice() {
+            [addr, mask, tgt] => {
+                let e = mode_of(insn, |m| matches!(m, Mode::BitBrExt))
+                    .ok_or_else(|| format!("`{}`: no extended bit-branch", insn.mnemonic))?;
+                let a = eval_or_zero(addr, lc, sym, &mut unresolved)?;
+                let m = eval_or_zero(mask.trim_start_matches('#'), lc, sym, &mut unresolved)?;
+                let rel = eval_or_zero(tgt, lc, sym, &mut unresolved)? - (lc as i64 + 6);
+                let mut bytes = e.prefix.to_vec();
+                bytes.push(m as u8);
+                emit_be(&mut bytes, a, 2);
+                emit_be(&mut bytes, rel, 2);
+                return Ok(Enc { bytes, unresolved });
+            }
+            [off, reg, mask, tgt] if parse_reg(reg).is_some() => {
+                let r = parse_reg(reg).unwrap();
+                let e = mode_of(insn, |m| matches!(m, Mode::BitBrInd(rr) if rr == r))
+                    .ok_or_else(|| format!("`{}`: no indexed bit-branch for {r:?}", insn.mnemonic))?;
+                let o = eval_or_zero(off, lc, sym, &mut unresolved)?;
+                let m = eval_or_zero(mask.trim_start_matches('#'), lc, sym, &mut unresolved)?;
+                let rel = eval_or_zero(tgt, lc, sym, &mut unresolved)? - (lc as i64 + 6);
+                let mut bytes = e.prefix.to_vec();
+                bytes.push(m as u8);
+                bytes.push(o as u8);
+                bytes.push(rel as u8);
+                return Ok(Enc { bytes, unresolved });
+            }
+            _ => return Err(format!("`{}`: expects addr,#mask,target or off,reg,#mask,target", insn.mnemonic)),
         }
-        let addr = eval_or_zero(parts[0].trim(), lc, sym, &mut unresolved)?;
-        let mask = eval_or_zero(parts[1].trim().trim_start_matches('#'), lc, sym, &mut unresolved)?;
-        let target = eval_or_zero(parts[2].trim(), lc, sym, &mut unresolved)?;
-        let rel = target - (lc as i64 + 6); // CPU16 prefetch: relative to start + 6
-        let mut bytes = e.prefix.to_vec();
-        bytes.push(mask as u8);
-        emit_be(&mut bytes, addr, 2);
-        emit_be(&mut bytes, rel, 2);
-        return Ok(Enc { bytes, unresolved });
     }
 
-    // Bit set/clear: addr,#mask.
-    if let Some(e) = mode_of(insn, |m| matches!(m, Mode::BitExt)) {
-        let parts = split_top_commas(raw);
-        if parts.len() != 2 {
-            return Err(format!("`{}` expects addr,#mask", insn.mnemonic));
+    // Bit set/clear: extended `addr,#mask` or indexed `off,reg,#mask`.
+    if mode_of(insn, |m| matches!(m, Mode::BitExt | Mode::BitInd(_))).is_some() {
+        let parts: Vec<&str> = split_top_commas(raw).iter().map(|s| s.trim()).collect();
+        match parts.as_slice() {
+            [addr, mask] => {
+                let e = mode_of(insn, |m| matches!(m, Mode::BitExt))
+                    .ok_or_else(|| format!("`{}`: no extended bit op", insn.mnemonic))?;
+                let a = eval_or_zero(addr, lc, sym, &mut unresolved)?;
+                let m = eval_or_zero(mask.trim_start_matches('#'), lc, sym, &mut unresolved)?;
+                let mut bytes = e.prefix.to_vec();
+                bytes.push(m as u8);
+                emit_be(&mut bytes, a, 2);
+                return Ok(Enc { bytes, unresolved });
+            }
+            [off, reg, mask] if parse_reg(reg).is_some() => {
+                let r = parse_reg(reg).unwrap();
+                let e = mode_of(insn, |m| matches!(m, Mode::BitInd(rr) if rr == r))
+                    .ok_or_else(|| format!("`{}`: no indexed bit op for {r:?}", insn.mnemonic))?;
+                let o = eval_or_zero(off, lc, sym, &mut unresolved)?;
+                let m = eval_or_zero(mask.trim_start_matches('#'), lc, sym, &mut unresolved)?;
+                let mut bytes = e.prefix.to_vec();
+                bytes.push(m as u8);
+                bytes.push(o as u8);
+                return Ok(Enc { bytes, unresolved });
+            }
+            _ => return Err(format!("`{}`: expects addr,#mask or off,reg,#mask", insn.mnemonic)),
         }
-        let addr = eval_or_zero(parts[0].trim(), lc, sym, &mut unresolved)?;
-        let mask = eval_or_zero(parts[1].trim().trim_start_matches('#'), lc, sym, &mut unresolved)?;
-        let mut bytes = e.prefix.to_vec();
-        bytes.push(mask as u8);
-        emit_be(&mut bytes, addr, 2);
-        return Ok(Enc { bytes, unresolved });
     }
 
     // Register list (pshm/pulm): OR the per-register mask bits. pulm uses the
@@ -610,6 +652,15 @@ fn is_x_reg(s: &str) -> bool {
     s.trim().eq_ignore_ascii_case("x")
 }
 
+fn parse_reg(s: &str) -> Option<IdxReg> {
+    match s.trim().to_ascii_lowercase().as_str() {
+        "x" => Some(IdxReg::X),
+        "y" => Some(IdxReg::Y),
+        "z" => Some(IdxReg::Z),
+        _ => None,
+    }
+}
+
 /// Mask bit for a `pshm`/`pulm` register. Push order d,e,x,y,z,k,ccr = bits 0..6;
 /// pull uses the bit-reversed assignment.
 fn reg_mask_bit(name: &str, pull: bool) -> Option<u8> {
@@ -643,13 +694,14 @@ fn split_index(raw: &str) -> Option<(&str, IdxReg)> {
 fn split_top_commas(s: &str) -> Vec<&str> {
     let mut parts = Vec::new();
     let bytes = s.as_bytes();
-    let (mut start, mut depth, mut quote) = (0usize, 0i32, false);
+    let (mut start, mut depth, mut sq, mut dq) = (0usize, 0i32, false, false);
     for (i, &b) in bytes.iter().enumerate() {
         match b {
-            b'\'' => quote = !quote,
-            b'(' if !quote => depth += 1,
-            b')' if !quote => depth -= 1,
-            b',' if !quote && depth == 0 => {
+            b'\'' if !dq => sq = !sq,
+            b'"' if !sq => dq = !dq,
+            b'(' if !sq && !dq => depth += 1,
+            b')' if !sq && !dq => depth -= 1,
+            b',' if !sq && !dq && depth == 0 => {
                 parts.push(&s[start..i]);
                 start = i + 1;
             }

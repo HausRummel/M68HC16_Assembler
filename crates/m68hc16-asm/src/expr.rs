@@ -157,6 +157,17 @@ impl<'a> P<'a> {
             self.i += 1;
         }
         let name = std::str::from_utf8(&self.s[start..self.i]).unwrap();
+        // Built-in function call: NAME(expr).
+        if self.peek() == Some(b'(') {
+            self.i += 1;
+            let arg = self.expr(0)?;
+            self.ws();
+            if self.peek() != Some(b')') {
+                return Err(EvalError::Syntax("expected `)`".into()));
+            }
+            self.i += 1;
+            return apply_func(name, arg);
+        }
         self.sym
             .get(name)
             .ok_or_else(|| EvalError::Undefined(name.to_string()))
@@ -210,6 +221,15 @@ fn apply(op: &[u8], a: i64, b: i64) -> Result<i64, EvalError> {
         }
         _ => unreachable!(),
     })
+}
+
+/// Built-in MASM operand functions. `PAGE(x)` is the bank byte of a 20-bit
+/// address (used to set bank registers in the HC16 addressing convention).
+fn apply_func(name: &str, arg: i64) -> Result<i64, EvalError> {
+    match name.to_ascii_uppercase().as_str() {
+        "PAGE" => Ok((arg >> 16) & 0xFF),
+        other => Err(EvalError::Undefined(format!("{other}()"))),
+    }
 }
 
 fn is_sym_start(c: u8) -> bool {

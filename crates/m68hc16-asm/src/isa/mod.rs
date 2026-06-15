@@ -50,8 +50,12 @@ pub enum Mode {
     Rel16,
     /// Bit op on an extended address: `mask8`, `addr16`.
     BitExt,
-    /// Bit-conditional branch: `mask8`, `addr16`, `rel16`.
+    /// Bit op on an 8-bit indexed address: `mask8`, `off8`.
+    BitInd(IdxReg),
+    /// Bit-conditional branch (extended): `mask8`, `addr16`, `rel16`.
     BitBrExt,
+    /// Bit-conditional branch (8-bit indexed): `mask8`, `off8`, `rel8`.
+    BitBrInd(IdxReg),
     /// `pshm`/`pulm` register-mask byte.
     RegList,
     /// `movb`/`movw` memory-to-memory: two 16-bit addresses.
