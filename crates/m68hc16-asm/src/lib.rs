@@ -67,8 +67,8 @@ pub fn assemble(req: &AssembleRequest) -> AssembleResult {
         return result;
     }
 
-    let src = match std::fs::read_to_string(&req.input) {
-        Ok(s) => s,
+    let bytes = match std::fs::read(&req.input) {
+        Ok(b) => b,
         Err(e) => {
             result
                 .diagnostics
@@ -76,6 +76,8 @@ pub fn assemble(req: &AssembleRequest) -> AssembleResult {
             return result;
         }
     };
+    // DOS sources carry extended-ASCII art in comments; decode lossily.
+    let src = String::from_utf8_lossy(&bytes);
 
     let obj = encoder::assemble_source_in(&src, req.input.parent());
     result.diagnostics = obj.diagnostics;

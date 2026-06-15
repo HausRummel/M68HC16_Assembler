@@ -17,6 +17,10 @@ pub struct Line<'a> {
 }
 
 /// Split one source line into its fields.
+///
+/// The operand field is a single whitespace-delimited token (quotes protect
+/// internal spaces). Everything after it is the comment — this is how Motorola
+/// MASM treats a trailing `* …` or `; …` comment after the operand.
 pub fn split_line(line: &str) -> Line<'_> {
     // Whole-line comment: blank, or first non-blank is `*` or `;`.
     let trimmed = line.trim_start();
@@ -27,46 +31,56 @@ pub fn split_line(line: &str) -> Line<'_> {
         return Line { comment: Some(trimmed), ..Line::default() };
     }
 
-    // Separate a trailing comment (`;` outside of single quotes).
-    let (code, comment) = split_comment(line);
-
-    let has_label = !code.starts_with([' ', '\t']);
-    let mut rest = code.trim_start();
+    let has_label = !line.starts_with([' ', '\t']);
+    let mut rest = line.trim_start();
 
     let mut label = None;
     if has_label {
         let end = rest.find([' ', '\t']).unwrap_or(rest.len());
-        let mut name = &rest[..end];
-        name = name.strip_suffix(':').unwrap_or(name);
+        let name = rest[..end].strip_suffix(':').unwrap_or(&rest[..end]);
         label = Some(name);
         rest = rest[end..].trim_start();
     }
 
+    // Operation: first token, unless what remains is a comment (`;` or `*`).
     let mut op = None;
-    if !rest.is_empty() {
+    if !rest.is_empty() && !rest.starts_with([';', '*']) {
         let end = rest.find([' ', '\t']).unwrap_or(rest.len());
         op = Some(&rest[..end]);
         rest = rest[end..].trim_start();
     }
 
-    let operand = if rest.is_empty() { None } else { Some(rest.trim_end()) };
+    // Operand (only meaningful with an op): first quote-aware token; the
+    // remainder is the comment.
+    let (mut operand, mut comment) = (None, None);
+    if op.is_some() && !rest.is_empty() && !rest.starts_with(';') {
+        let end = operand_end(rest);
+        if end > 0 {
+            operand = Some(&rest[..end]);
+        }
+        let after = rest[end..].trim_start();
+        if !after.is_empty() {
+            comment = Some(after);
+        }
+    } else if !rest.is_empty() {
+        comment = Some(rest);
+    }
 
     Line { label, op, operand, comment }
 }
 
-/// Split `line` into (code, comment) at the first `;` that is not inside a
-/// single-quoted character/string literal.
-fn split_comment(line: &str) -> (&str, Option<&str>) {
-    let bytes = line.as_bytes();
-    let mut in_quote = false;
-    for (idx, &b) in bytes.iter().enumerate() {
+/// Index of the first unquoted whitespace in `s` (end of the operand token).
+fn operand_end(s: &str) -> usize {
+    let (mut sq, mut dq) = (false, false);
+    for (i, &b) in s.as_bytes().iter().enumerate() {
         match b {
-            b'\'' => in_quote = !in_quote,
-            b';' if !in_quote => return (&line[..idx], Some(&line[idx..])),
+            b'\'' if !dq => sq = !sq,
+            b'"' if !sq => dq = !dq,
+            b' ' | b'\t' if !sq && !dq => return i,
             _ => {}
         }
     }
-    (line, None)
+    s.len()
 }
 
 #[cfg(test)]
@@ -118,5 +132,29 @@ mod tests {
         assert_eq!(l.op, Some("fcb"));
         assert_eq!(l.operand, Some("';'"));
         assert_eq!(l.comment, None);
+    }
+
+    #[test]
+    fn star_after_operand_is_an_inline_comment() {
+        let l = split_line("        INCLUDE FILE.ASM      * load equates");
+        assert_eq!(l.op, Some("INCLUDE"));
+        assert_eq!(l.operand, Some("FILE.ASM"));
+        assert_eq!(l.comment, Some("* load equates"));
+    }
+
+    #[test]
+    fn star_as_operand_is_the_location_counter() {
+        let l = split_line("LABEL   equ *");
+        assert_eq!(l.label, Some("LABEL"));
+        assert_eq!(l.op, Some("equ"));
+        assert_eq!(l.operand, Some("*"));
+    }
+
+    #[test]
+    fn quoted_string_operand_keeps_spaces() {
+        let l = split_line("        fail \"out of range here\"   * note");
+        assert_eq!(l.op, Some("fail"));
+        assert_eq!(l.operand, Some("\"out of range here\""));
+        assert_eq!(l.comment, Some("* note"));
     }
 }

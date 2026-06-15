@@ -99,8 +99,11 @@ fn expand_includes(lines: &[String], base: Option<&Path>, depth: u32, diags: &mu
                 continue;
             };
             let path = base.map(|b| b.join(name)).unwrap_or_else(|| PathBuf::from(name));
-            match std::fs::read_to_string(&path) {
-                Ok(text) => {
+            match std::fs::read(&path) {
+                Ok(bytes) => {
+                    // Sources are DOS text with extended-ASCII art in comments; read
+                    // lossily since only comments hold non-UTF-8 bytes.
+                    let text = String::from_utf8_lossy(&bytes);
                     let sub: Vec<String> = text.lines().map(str::to_string).collect();
                     out.extend(expand_includes(&sub, path.parent(), depth + 1, diags));
                 }
@@ -280,6 +283,19 @@ fn run_pass(lines: &[String], sym_in: &SymbolTable) -> Object {
                 Ok(v) => lc = lc.wrapping_add(v as u32),
                 Err(e) => err(&mut out, lineno, format!("rmb: {e}")),
             },
+            // Alignment: MASM emits 0xFF fill bytes up to the boundary.
+            "even" => {
+                if lc & 1 != 0 {
+                    out.data.push((lc, 0xFF));
+                    lc = lc.wrapping_add(1);
+                }
+            }
+            "longeven" => {
+                while lc & 3 != 0 {
+                    out.data.push((lc, 0xFF));
+                    lc = lc.wrapping_add(1);
+                }
+            }
             "fcb" | "dc.b" => emit_list(&mut out, &mut lc, lineno, line.operand, sym_in, 1),
             "fdb" | "dc.w" => emit_list(&mut out, &mut lc, lineno, line.operand, sym_in, 2),
             "fcc" => emit_fcc(&mut out, &mut lc, lineno, line.operand),
@@ -381,6 +397,14 @@ struct Enc {
 
 fn encode_instruction(insn: &InsnDef, operand: Option<&str>, lc: u32, sym: &SymbolTable) -> Result<Enc, String> {
     let mut unresolved = Vec::new();
+
+    // Inherent-only instructions ignore any operand — MASM does too (the operand
+    // column often just holds a trailing comment the lexer captured).
+    if insn.modes.iter().all(|m| matches!(m.mode, Mode::Inherent)) {
+        if let Some(e) = mode_of(insn, |m| matches!(m, Mode::Inherent)) {
+            return Ok(Enc { bytes: e.prefix.to_vec(), unresolved });
+        }
+    }
 
     // No operand -> inherent.
     let Some(raw) = operand.map(str::trim).filter(|s| !s.is_empty()) else {

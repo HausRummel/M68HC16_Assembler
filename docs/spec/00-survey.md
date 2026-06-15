@@ -158,9 +158,26 @@ and use conditionals only inside it; `abx/aba` are real instructions, not macros
 Validated by golden fixtures `prep.*` (macro + conditionals + `abx`/`aba`) and a
 unit test for `include`.
 
-**Not yet:** sections/relocation + linker (the `*sct`/`x*` no-ops are placeholders);
-listing/map output; byte-exact S0/S9 record matching; the "code must be assembled
-at an even address" diagnostic; assembling a full real corpus module end-to-end.
+### End-to-end gap-finding (in progress)
+
+Running the assembler on the top-level corpus file surfaced (and fixed) several
+real-world issues: `*` is an inline comment after the operand (the operand field
+is one quote-aware token); sources carry extended-ASCII art in comments (read
+lossily); `EVEN`/`longeven` emit `0xFF` fill to align; inherent-only instructions
+ignore a trailing operand/comment. The whole include tree now resolves and real
+code assembles.
+
+The remaining big gap surfaced by the run: **indexed bit ops**. The corpus uses
+the `,Z` addressing convention pervasively, including `bset addr,Z,#mask` →
+`17 29 01 40` and `brset addr,Z,#mask,tgt` → `AB 01 40 FA` (indexed bit-branches
+use **rel8**, extended use rel16). The differential classifier only probed the
+extended bit form, so these per-register modes are missing from the ISA table —
+the cause of most remaining errors (and, likely by cascade, the branch-range and
+undefined-symbol errors, since a failed instruction shifts all later addresses).
+
+**Not yet:** indexed bit-op modes (next); sections/relocation + linker (the
+`*sct`/`x*` no-ops are placeholders); listing/map output; byte-exact S0/S9; the
+even-address-code diagnostic.
 
 ## Output formats
 
