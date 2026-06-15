@@ -48,6 +48,30 @@ pub struct Object {
     /// definitions). The `assembled` entries, in order, equal the flat stream
     /// the assembler consumes, so their emitted bytes/loc map positionally.
     pub list_lines: Vec<ListLine>,
+    /// Per-assembled-line `Loc`/object-code for the `.LST` body, indexed
+    /// positionally by the assembled stream (so `line_emit[k]` belongs to the
+    /// k-th `assembled` [`ListLine`]). Populated each pass; the converged pass's
+    /// is the one returned.
+    pub line_emit: Vec<LineEmit>,
+}
+
+/// The `Loc` and object-code a single source line contributes to the `.LST`
+/// body. See [`Object::line_emit`].
+#[derive(Debug, Clone, Default)]
+pub struct LineEmit {
+    /// Location counter at the line's start, when the line occupies an address
+    /// (a label, or an emitting/reserving directive). `None` => blank `Loc`
+    /// column (equates, comments, blank lines, listing/section directives).
+    pub loc: Option<u32>,
+    /// Object bytes this line emits, in order. Empty for reserves/labels/equates.
+    pub bytes: Vec<u8>,
+    /// For `equ`/`set`: the resolved value, shown in the `Obj. code` column as a
+    /// 32-bit word pair (`HHHH LLLL`) with a blank `Loc`.
+    pub equ: Option<u32>,
+    /// True for data directives (`fcb`/`fdb`/`fcc`). When object code wraps past
+    /// two words, MASM repeats `Abs`+`Rel` on a data directive's continuation
+    /// rows but blanks `Rel` on an instruction's.
+    pub is_data: bool,
 }
 
 /// One source line in the `.LST` listing stream (see [`Object::list_lines`]).
@@ -93,6 +117,15 @@ pub fn assemble_source(src: &str) -> Object {
     assemble_source_in(src, None)
 }
 
+/// Decode source bytes as Latin-1 (ISO-8859-1): each byte becomes the codepoint
+/// of the same value. DOS sources are codepage/Latin-1 text, not UTF-8; mapping
+/// byte-for-byte keeps every assembled token (all ASCII) identical while letting
+/// the extended-ASCII art in comments round-trip exactly through the `.LST`
+/// source column (re-encode with [`crate::output::encode_latin1`]).
+pub fn decode_latin1(bytes: &[u8]) -> String {
+    bytes.iter().map(|&b| b as char).collect()
+}
+
 /// Which role a pass plays in the two-phase (size-commit then emit) assembly.
 enum Sizing<'a> {
     /// MASM pass 1: decide each span-dependent operand's width from
@@ -124,7 +157,9 @@ pub fn assemble_source_in(src: &str, base_dir: Option<&Path>) -> Object {
         }
     };
     // Provenance stream for the .LST body (additive; the assembly path below is
-    // unchanged, so S19/OBJ stay byte-identical).
+    // unchanged, so S19/OBJ stay byte-identical). Its `assembled` entries equal
+    // `lines` position-for-position (verified on the full corpus), which is what
+    // lets the body writer attach each line's emitted `Loc`/object code.
     let list_lines = build_listing_lines(&raw, base_dir);
     // First definition line of each symbol (1-based, matching run_pass `lineno`).
     // Used during pass 1 to flag forward references on operands (e.g. bit ops)
@@ -463,10 +498,7 @@ fn expand_includes(lines: &[String], base: Option<&Path>, depth: u32, diags: &mu
             let path = base.map(|b| b.join(name)).unwrap_or_else(|| PathBuf::from(name));
             match std::fs::read(&path) {
                 Ok(bytes) => {
-                    // Sources are DOS text with extended-ASCII art in comments; read
-                    // lossily since only comments hold non-UTF-8 bytes.
-                    let text = String::from_utf8_lossy(&bytes);
-                    let sub: Vec<String> = text.lines().map(str::to_string).collect();
+                    let sub: Vec<String> = decode_latin1(&bytes).lines().map(str::to_string).collect();
                     out.extend(expand_includes(&sub, path.parent(), depth + 1, diags));
                 }
                 Err(e) => diags.push(Diagnostic::error(format!("cannot include {}: {e}", path.display()))),
@@ -553,8 +585,7 @@ fn list_expand_includes(lines: &[String], base: Option<&Path>, depth: u32, out: 
             if let Some(name) = p.operand.map(|s| s.trim().trim_matches('"')) {
                 let path = base.map(|b| b.join(name)).unwrap_or_else(|| PathBuf::from(name));
                 if let Ok(bytes) = std::fs::read(&path) {
-                    let sub: Vec<String> =
-                        String::from_utf8_lossy(&bytes).lines().map(str::to_string).collect();
+                    let sub: Vec<String> = decode_latin1(&bytes).lines().map(str::to_string).collect();
                     list_expand_includes(&sub, path.parent(), depth + 1, out);
                 }
             }
@@ -689,6 +720,8 @@ fn substitute_params(line: &str, args: &[String]) -> String {
 
 fn run_pass(lines: &[String], sym_in: &SymbolTable, def_line: &HashMap<String, usize>, mut sizing: Sizing) -> Object {
     let mut out = Object::default();
+    // One `.LST` body record per source line, filled in positionally below.
+    out.line_emit = vec![LineEmit::default(); lines.len()];
     let mut lc: u32 = 0;
     let mut cond_stack: Vec<CondFrame> = Vec::new();
 
@@ -736,6 +769,11 @@ fn run_pass(lines: &[String], sym_in: &SymbolTable, def_line: &HashMap<String, u
             continue;
         }
 
+        // `.LST` body: the location this line occupies (its `Loc` column) is the
+        // LC before the line advances it. Object bytes are captured as the delta
+        // pushed to `out.data` while assembling this line.
+        let lc_start = lc;
+
         // A label takes the current LC, except `equ`/`set` which take the operand.
         if let Some(lbl) = line.label {
             match op_lower.as_deref() {
@@ -745,7 +783,9 @@ fn run_pass(lines: &[String], sym_in: &SymbolTable, def_line: &HashMap<String, u
                         let first = split_top_commas(operand).first().map_or(operand, |s| s.trim());
                         match expr::eval_full(first, lc, read_syms!()) {
                             Ok((v, r)) => {
-                                defined.define(lbl, v, if r == 0 { Kind::Abs } else { Kind::Rel })
+                                defined.define(lbl, v, if r == 0 { Kind::Abs } else { Kind::Rel });
+                                // Shown in the `Obj. code` column as a 32-bit pair.
+                                out.line_emit[idx].equ = Some(v as u32);
                             }
                             Err(EvalError::Undefined(_)) => {} // resolves on a later pass
                             Err(EvalError::Syntax(s)) => err(&mut out, lineno, s),
@@ -759,7 +799,13 @@ fn run_pass(lines: &[String], sym_in: &SymbolTable, def_line: &HashMap<String, u
             }
         }
 
-        let Some(op) = op_lower.as_deref() else { continue };
+        let Some(op) = op_lower.as_deref() else {
+            // A bare label occupies an address even with no operation.
+            if line.label.is_some() {
+                out.line_emit[idx].loc = Some(lc_start);
+            }
+            continue;
+        };
 
         // Listing/section/linkage directives that do not affect emitted bytes yet.
         if IGNORED_DIRECTIVES.contains(&op) {
@@ -772,6 +818,7 @@ fn run_pass(lines: &[String], sym_in: &SymbolTable, def_line: &HashMap<String, u
             continue;
         }
 
+        let data_start = out.data.len();
         match op {
             "equ" | "set" => {} // handled with the label above
             "org" => match eval1(line.operand, lc, read_syms!()) {
@@ -787,6 +834,7 @@ fn run_pass(lines: &[String], sym_in: &SymbolTable, def_line: &HashMap<String, u
             // trailing reserve or a reserve-only section (dropped, as MASM does).
             "rmb" | "ds" => match eval1(line.operand, lc, read_syms!()) {
                 Ok(v) => {
+                    out.line_emit[idx].loc = Some(lc_start);
                     if v > 0 {
                         out.spans.push((lc, v as u32, Elem::Reserve));
                     }
@@ -799,6 +847,8 @@ fn run_pass(lines: &[String], sym_in: &SymbolTable, def_line: &HashMap<String, u
                     out.spans.push((lc, 1, Elem::Reserve));
                     lc = lc.wrapping_add(1);
                 }
+                // MASM lists alignment directives at the *aligned* address.
+                out.line_emit[idx].loc = Some(lc);
             }
             "longeven" => {
                 let start = lc;
@@ -808,23 +858,27 @@ fn run_pass(lines: &[String], sym_in: &SymbolTable, def_line: &HashMap<String, u
                 if lc > start {
                     out.spans.push((start, lc - start, Elem::Reserve));
                 }
+                out.line_emit[idx].loc = Some(lc);
             }
             "fcb" | "dc.b" => {
                 let rt = read_syms!();
                 let start = lc;
                 emit_list(&mut out, &mut lc, lineno, line.operand, rt, 1);
                 out.spans.push((start, lc - start, Elem::Byte));
+                out.line_emit[idx].is_data = true;
             }
             "fdb" | "dc.w" => {
                 let rt = read_syms!();
                 let start = lc;
                 emit_list(&mut out, &mut lc, lineno, line.operand, rt, 2);
                 out.spans.push((start, lc - start, Elem::Word));
+                out.line_emit[idx].is_data = true;
             }
             "fcc" => {
                 let start = lc;
                 emit_fcc(&mut out, &mut lc, lineno, line.operand);
                 out.spans.push((start, lc - start, Elem::Byte));
+                out.line_emit[idx].is_data = true;
             }
             "end" => break,
             _ => match isa::lookup(op) {
@@ -857,6 +911,13 @@ fn run_pass(lines: &[String], sym_in: &SymbolTable, def_line: &HashMap<String, u
                 }
                 None => err(&mut out, lineno, format!("unknown operation `{}`", line.op.unwrap())),
             },
+        }
+
+        // `.LST` body: object bytes this line emitted (instruction/fcb/fdb/fcc).
+        // A line that emits bytes occupies its `Loc`.
+        if out.data.len() > data_start {
+            out.line_emit[idx].bytes = out.data[data_start..].iter().map(|(_, b)| *b).collect();
+            out.line_emit[idx].loc = Some(lc_start);
         }
     }
 

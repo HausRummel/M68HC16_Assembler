@@ -76,8 +76,9 @@ pub fn assemble(req: &AssembleRequest) -> AssembleResult {
             return result;
         }
     };
-    // DOS sources carry extended-ASCII art in comments; decode lossily.
-    let src = String::from_utf8_lossy(&bytes);
+    // DOS sources are Latin-1/codepage text; decode byte-for-byte so the listing
+    // reproduces them exactly (assembled tokens are ASCII, so unaffected).
+    let src = encoder::decode_latin1(&bytes);
 
     let obj = encoder::assemble_source_in(&src, req.input.parent());
     result.diagnostics = obj.diagnostics;
@@ -101,6 +102,11 @@ pub fn assemble(req: &AssembleRequest) -> AssembleResult {
     if let Ok(path) = std::env::var("HC16_LST") {
         let secs = output::coff::section_list(&obj.data, &obj.spans);
         let _ = std::fs::write(&path, output::listing::symbol_table(&obj.symbols, &obj.macros, &secs));
+    }
+    // Dev validation hook: dump the listing body (env HC16_LSTBODY).
+    if let Ok(path) = std::env::var("HC16_LSTBODY") {
+        let body = output::listing::body(&obj.list_lines, &obj.line_emit);
+        let _ = std::fs::write(&path, output::encode_latin1(&body));
     }
 
     let s19_path = req.output_dir.join(format!("{stem}.S19"));
