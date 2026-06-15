@@ -225,7 +225,25 @@ listing's symbol table, read the MASM listing at the first drift, probe the orac
 for the mis-sized instruction's true encoding, add the mode/rule. Remaining drift
 (currently from ~`0x13DA0`) is more of the same.
 
-Then: full sections/relocation + linker, listing/map output, byte-exact S0/S9.
+**Full listing diff (key result).** A per-instruction byte-count diff of our output
+vs the MASM listing (`HC16_TRACE=<file>` dumps `(byte-count, source)` per
+instruction; MASM sizes come from listing address deltas — both robust to address
+drift) shows **no missing instruction encodings remain**. Every one of the ~528
+mismatches (out of ~22k aligned instructions) is `Ind8`↔`Ind16` or bit-branch
+`8`↔`16` operand sizing — and it is **bidirectional** (e.g. `ldaa ours=4 masm=2`
+*and* `ours=2 masm=4`).
+
+The bidirectionality is diagnostic: our size decision uses the *converged* symbol
+values, which drift; once a drifting offset crosses the 256 boundary the size flips
+the wrong way, feeding back into more drift. MASM commits each operand's size in a
+forward pass-1 (forward ref → wide; otherwise by the pass-1 value) and never
+re-derives it. **So the one remaining task for byte-exactness is a MASM-faithful
+size-commitment pass** — determine each span-dependent operand's size once in a
+forward scan and hold it fixed, rather than recomputing from drift-prone values.
+This is the classic span-dependent-instruction problem; the ISA itself is complete.
+
+Then: that sizing pass, full sections/relocation + linker, listing/map output,
+byte-exact S0/S9.
 
 ## Output formats
 

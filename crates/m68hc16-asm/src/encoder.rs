@@ -21,6 +21,9 @@ pub struct Object {
     pub data: Vec<(u32, u8)>,
     pub symbols: SymbolTable,
     pub diagnostics: Vec<Diagnostic>,
+    /// Per-instruction `(source, byte-count)`, for diffing encodings against the
+    /// MASM listing independent of address drift. Dumped via `HC16_TRACE=<file>`.
+    pub trace: Vec<(String, u8)>,
 }
 
 impl Object {
@@ -66,6 +69,14 @@ pub fn assemble_source_in(src: &str, base_dir: Option<&Path>) -> Object {
                 let mut s = String::new();
                 for (k, v) in obj.symbols.iter() {
                     let _ = writeln!(s, "{k}\t{v:X}");
+                }
+                let _ = std::fs::write(&path, s);
+            }
+            if let Ok(path) = std::env::var("HC16_TRACE") {
+                use std::fmt::Write as _;
+                let mut s = String::new();
+                for (src, n) in &obj.trace {
+                    let _ = writeln!(s, "{n}\t{src}");
                 }
                 let _ = std::fs::write(&path, s);
             }
@@ -360,6 +371,7 @@ fn run_pass(lines: &[String], sym_in: &SymbolTable, def_line: &HashMap<String, u
                         for n in enc.unresolved {
                             err(&mut out, lineno, format!("undefined symbol \"{n}\""));
                         }
+                        out.trace.push((raw_line.trim().to_string(), enc.bytes.len() as u8));
                         for b in enc.bytes {
                             out.data.push((lc, b));
                             lc = lc.wrapping_add(1);
