@@ -31,6 +31,26 @@ pub struct Object {
     /// empty), whereas a gap from `rmb`/`even` within a section is filled. See
     /// [`fill_sections`].
     pub org_targets: Vec<u32>,
+    /// Per-emitted-item `(start, len, kind)` for everything that advances the
+    /// location counter (instructions, data directives, reserves). Used by the
+    /// COFF/OBJ writer to determine section extents/flags and per-symbol types.
+    pub spans: Vec<(u32, u32, Elem)>,
+    /// Program symbols in MASM symbol-table order: `(name, first-occurrence
+    /// element context)`. The context drives the COFF symbol `type` (a label
+    /// forward-referenced in an `fdb` is typed as a word). Populated after
+    /// convergence.
+    pub sym_order: Vec<(String, Option<Elem>)>,
+}
+
+/// The element kind of a span — drives the COFF symbol `type` (Code=0,
+/// Word=T_SHORT=3, Byte=T_CHAR=2) and section flags (any Code -> TEXT, else data
+/// -> DATA, else reserve-only -> BSS).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Elem {
+    Code,
+    Word,
+    Byte,
+    Reserve,
 }
 
 impl Object {
@@ -99,6 +119,7 @@ pub fn assemble_source_in(src: &str, base_dir: Option<&Path>) -> Object {
             // Convergence is on the *real* bytes; materialise the section fill on
             // the final image (MASM/HEX behaviour) only after the layout settles.
             obj.data = fill_sections(&obj.data, &obj.org_targets);
+            obj.sym_order = order_symbols(&obj.symbols, &lines);
             if let Ok(path) = std::env::var("HC16_SYMS") {
                 use std::fmt::Write as _;
                 let mut s = String::new();
@@ -122,9 +143,105 @@ pub fn assemble_source_in(src: &str, base_dir: Option<&Path>) -> Object {
     }
     let mut obj = run_pass(&lines, &symbols, &def_line, Sizing::Use(&widths));
     obj.data = fill_sections(&obj.data, &obj.org_targets);
+    obj.sym_order = order_symbols(&obj.symbols, &lines);
     obj.diagnostics
         .push(Diagnostic::warning("assembly did not converge (possible phase error)"));
     obj
+}
+
+/// Program symbols in MASM symbol-table order, which is FIRST-OCCURRENCE order: a
+/// symbol is entered when first *seen* — as a label OR in an operand — so a label
+/// forward-referenced by the vector table sorts before its definition. Each
+/// symbol also carries the element context of that first occurrence (the width of
+/// the directive/instruction on that line), which sets its COFF `type`.
+fn order_symbols(symbols: &SymbolTable, lines: &[String]) -> Vec<(String, Option<Elem>)> {
+    let mut first: HashMap<String, (usize, Option<Elem>)> = HashMap::new();
+    let mut seq = 0usize;
+    for line in lines {
+        let p = split_line(line);
+        let ctx = op_elem(p.op);
+        let mut note = |name: &str| {
+            first.entry(name.to_string()).or_insert_with(|| {
+                let s = seq;
+                seq += 1;
+                (s, ctx)
+            });
+        };
+        if let Some(lbl) = p.label {
+            note(lbl);
+        }
+        if let Some(operand) = p.operand {
+            for id in identifiers(operand) {
+                note(id);
+            }
+        }
+    }
+    let mut out: Vec<(usize, String, Option<Elem>)> = symbols
+        .iter()
+        .map(|(n, _)| {
+            let (s, ctx) = first.get(n).copied().unwrap_or((usize::MAX, None));
+            (s, n.clone(), ctx)
+        })
+        .collect();
+    out.sort();
+    out.into_iter().map(|(_, n, ctx)| (n, ctx)).collect()
+}
+
+/// The element width of an op: `fdb`->Word, byte directives->Byte, `rmb`->Reserve,
+/// a known instruction->Code, anything else (`equ`, none, listing dirs)->None.
+fn op_elem(op: Option<&str>) -> Option<Elem> {
+    let op = op?.to_ascii_lowercase();
+    match op.as_str() {
+        "fdb" | "dc.w" => Some(Elem::Word),
+        "fcb" | "dc.b" | "fcc" => Some(Elem::Byte),
+        "rmb" | "ds" => Some(Elem::Reserve),
+        _ if isa::lookup(&op).is_some() => Some(Elem::Code),
+        _ => None,
+    }
+}
+
+/// Identifiers (candidate symbol references) in `expr`, in order, skipping
+/// numeric/char literals — mirrors [`needs_wide`]'s tokenizer.
+fn identifiers(expr: &str) -> Vec<&str> {
+    let b = expr.as_bytes();
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < b.len() {
+        match b[i] {
+            b'$' | b'%' | b'@' => {
+                i += 1;
+                while i < b.len() && b[i].is_ascii_alphanumeric() {
+                    i += 1;
+                }
+            }
+            c if c.is_ascii_digit() => {
+                while i < b.len() && b[i].is_ascii_alphanumeric() {
+                    i += 1;
+                }
+            }
+            b'\'' => {
+                i += 1;
+                if i < b.len() {
+                    i += 1;
+                }
+                if i < b.len() && b[i] == b'\'' {
+                    i += 1;
+                }
+            }
+            c if c.is_ascii_alphabetic() || c == b'_' || c == b'.' => {
+                let start = i;
+                while i < b.len() && (b[i].is_ascii_alphanumeric() || b[i] == b'_' || b[i] == b'.') {
+                    i += 1;
+                }
+                if b.get(i) == Some(&b'(') {
+                    continue; // function call name, not a symbol
+                }
+                out.push(&expr[start..i]);
+            }
+            _ => i += 1,
+        }
+    }
+    out
 }
 
 /// First (1-based) line where each symbol is defined — a label or `equ`/`set`.
@@ -425,28 +542,46 @@ fn run_pass(lines: &[String], sym_in: &SymbolTable, def_line: &HashMap<String, u
             // whether a reserve sits between real data (filled) or is a leading/
             // trailing reserve or a reserve-only section (dropped, as MASM does).
             "rmb" | "ds" => match eval1(line.operand, lc, read_syms!()) {
-                Ok(v) => lc = lc.wrapping_add(v as u32),
+                Ok(v) => {
+                    if v > 0 {
+                        out.spans.push((lc, v as u32, Elem::Reserve));
+                    }
+                    lc = lc.wrapping_add(v as u32);
+                }
                 Err(e) => err(&mut out, lineno, format!("rmb: {e}")),
             },
             "even" => {
                 if lc & 1 != 0 {
+                    out.spans.push((lc, 1, Elem::Reserve));
                     lc = lc.wrapping_add(1);
                 }
             }
             "longeven" => {
+                let start = lc;
                 while lc & 3 != 0 {
                     lc = lc.wrapping_add(1);
+                }
+                if lc > start {
+                    out.spans.push((start, lc - start, Elem::Reserve));
                 }
             }
             "fcb" | "dc.b" => {
                 let rt = read_syms!();
-                emit_list(&mut out, &mut lc, lineno, line.operand, rt, 1)
+                let start = lc;
+                emit_list(&mut out, &mut lc, lineno, line.operand, rt, 1);
+                out.spans.push((start, lc - start, Elem::Byte));
             }
             "fdb" | "dc.w" => {
                 let rt = read_syms!();
-                emit_list(&mut out, &mut lc, lineno, line.operand, rt, 2)
+                let start = lc;
+                emit_list(&mut out, &mut lc, lineno, line.operand, rt, 2);
+                out.spans.push((start, lc - start, Elem::Word));
             }
-            "fcc" => emit_fcc(&mut out, &mut lc, lineno, line.operand),
+            "fcc" => {
+                let start = lc;
+                emit_fcc(&mut out, &mut lc, lineno, line.operand);
+                out.spans.push((start, lc - start, Elem::Byte));
+            }
             "end" => break,
             _ => match isa::lookup(op) {
                 Some(insn) => {
@@ -467,6 +602,7 @@ fn run_pass(lines: &[String], sym_in: &SymbolTable, def_line: &HashMap<String, u
                                 err(&mut out, lineno, format!("undefined symbol \"{n}\""));
                             }
                             out.trace.push((lc, enc.bytes.len() as u8, raw_line.trim().to_string()));
+                            out.spans.push((lc, enc.bytes.len() as u32, Elem::Code));
                             for b in enc.bytes {
                                 out.data.push((lc, b));
                                 lc = lc.wrapping_add(1);

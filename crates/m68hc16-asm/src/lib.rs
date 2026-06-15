@@ -86,6 +86,17 @@ pub fn assemble(req: &AssembleRequest) -> AssembleResult {
     }
 
     let stem = req.input.file_stem().and_then(|s| s.to_str()).unwrap_or("out");
+
+    // Relocatable COFF object (the intermediate HEX.exe converts to the S-record).
+    // Timestamp is left 0; it is the only non-deterministic field MASM writes.
+    let obj_path = req.output_dir.join(format!("{stem}.OBJ"));
+    let obj_bytes = output::coff::write_coff(&obj.data, &obj.spans, &obj.symbols, &obj.sym_order, 0);
+    if let Err(e) = std::fs::write(&obj_path, obj_bytes) {
+        result
+            .diagnostics
+            .push(Diagnostic::error(format!("cannot write {}: {e}", obj_path.display())));
+    }
+
     let s19_path = req.output_dir.join(format!("{stem}.S19"));
     // HEX.exe converts `<name>.OBJ`, and records that input name in the S0 header.
     let text = output::srec::write_srecords(&obj.data, &format!("{stem}.OBJ"));
