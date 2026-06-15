@@ -26,6 +26,11 @@ pub struct Object {
     /// localise size mismatches even through `nolist` blocks the listing omits).
     /// Dumped via `HC16_TRACE=<file>`.
     pub trace: Vec<(u32, u8, String)>,
+    /// Addresses every `org` set the location counter to. They delimit output
+    /// sections: a gap that an `org` jumped over is a section boundary (left
+    /// empty), whereas a gap from `rmb`/`even` within a section is filled. See
+    /// [`fill_sections`].
+    pub org_targets: Vec<u32>,
 }
 
 impl Object {
@@ -89,8 +94,11 @@ pub fn assemble_source_in(src: &str, base_dir: Option<&Path>) -> Object {
     let mut symbols = pass1.symbols;
     let mut prev: Option<Vec<(u32, u8)>> = None;
     for _ in 0..40 {
-        let obj = run_pass(&lines, &symbols, &def_line, Sizing::Use(&widths));
+        let mut obj = run_pass(&lines, &symbols, &def_line, Sizing::Use(&widths));
         if prev.as_ref() == Some(&obj.data) {
+            // Convergence is on the *real* bytes; materialise the section fill on
+            // the final image (MASM/HEX behaviour) only after the layout settles.
+            obj.data = fill_sections(&obj.data, &obj.org_targets);
             if let Ok(path) = std::env::var("HC16_SYMS") {
                 use std::fmt::Write as _;
                 let mut s = String::new();
@@ -113,6 +121,7 @@ pub fn assemble_source_in(src: &str, base_dir: Option<&Path>) -> Object {
         symbols = obj.symbols.clone();
     }
     let mut obj = run_pass(&lines, &symbols, &def_line, Sizing::Use(&widths));
+    obj.data = fill_sections(&obj.data, &obj.org_targets);
     obj.diagnostics
         .push(Diagnostic::warning("assembly did not converge (possible phase error)"));
     obj
@@ -320,9 +329,6 @@ fn substitute_params(line: &str, args: &[String]) -> String {
 fn run_pass(lines: &[String], sym_in: &SymbolTable, def_line: &HashMap<String, usize>, mut sizing: Sizing) -> Object {
     let mut out = Object::default();
     let mut lc: u32 = 0;
-    // Section origin (first `org`); used to pad the section to an even length, which
-    // MASM does automatically ("section has an odd length; fill byte was added").
-    let mut origin: Option<u32> = None;
     let mut cond_stack: Vec<CondFrame> = Vec::new();
 
     // Symbols defined so far in *this* pass. In `Record` mode (pass 1) operand
@@ -410,24 +416,25 @@ fn run_pass(lines: &[String], sym_in: &SymbolTable, def_line: &HashMap<String, u
             "org" => match eval1(line.operand, lc, read_syms!()) {
                 Ok(v) => {
                     lc = v as u32;
-                    origin.get_or_insert(lc);
+                    out.org_targets.push(lc);
                 }
                 Err(e) => err(&mut out, lineno, format!("org: {e}")),
             },
+            // `rmb`/`even`/`longeven` only advance the location counter; the fill
+            // bytes (if any) are materialised in `fill_sections`, which knows
+            // whether a reserve sits between real data (filled) or is a leading/
+            // trailing reserve or a reserve-only section (dropped, as MASM does).
             "rmb" | "ds" => match eval1(line.operand, lc, read_syms!()) {
                 Ok(v) => lc = lc.wrapping_add(v as u32),
                 Err(e) => err(&mut out, lineno, format!("rmb: {e}")),
             },
-            // Alignment: MASM emits 0xFF fill bytes up to the boundary.
             "even" => {
                 if lc & 1 != 0 {
-                    out.data.push((lc, 0xFF));
                     lc = lc.wrapping_add(1);
                 }
             }
             "longeven" => {
                 while lc & 3 != 0 {
-                    out.data.push((lc, 0xFF));
                     lc = lc.wrapping_add(1);
                 }
             }
@@ -473,15 +480,56 @@ fn run_pass(lines: &[String], sym_in: &SymbolTable, def_line: &HashMap<String, u
         }
     }
 
-    // Pad the section to an even length (MASM appends a 0xFF fill byte).
-    if let Some(o) = origin {
-        if lc.wrapping_sub(o) & 1 == 1 {
-            out.data.push((lc, 0xFF));
-        }
-    }
-
     out.symbols = defined;
     out
+}
+
+/// Turn the emitted *real* data bytes into the final ROM image the way MASM /
+/// HEX.exe does. The bytes are partitioned into sections at `org` boundaries; a
+/// gap an `org` jumped over separates sections, while a gap from `rmb`/`even`
+/// stays inside a section. For each section, the image runs from its first to
+/// its last real byte with internal gaps filled `0xFF`, then padded so the
+/// section ends on an even boundary. Leading/trailing reserves and reserve-only
+/// sections (e.g. the RAM modules at `$f8xxx`) emit nothing.
+fn fill_sections(data: &[(u32, u8)], org_targets: &[u32]) -> Vec<(u32, u8)> {
+    let mut real: Vec<(u32, u8)> = data.to_vec();
+    real.sort_by_key(|(a, _)| *a);
+    real.dedup_by_key(|(a, _)| *a);
+    if real.is_empty() {
+        return real;
+    }
+    let targets: std::collections::BTreeSet<u32> = org_targets.iter().copied().collect();
+
+    // Real bytes take precedence; fill/pad use `or_insert` so they never clobber.
+    let mut img: std::collections::BTreeMap<u32, u8> = real.iter().copied().collect();
+
+    let mut i = 0;
+    while i < real.len() {
+        // Extend the section while consecutive real bytes aren't split by an org.
+        let mut j = i + 1;
+        while j < real.len() {
+            let (prev, cur) = (real[j - 1].0, real[j].0);
+            let split = targets
+                .range((std::ops::Bound::Excluded(prev), std::ops::Bound::Included(cur)))
+                .next()
+                .is_some();
+            if split {
+                break;
+            }
+            j += 1;
+        }
+        let (first, last) = (real[i].0, real[j - 1].0);
+        for a in first..=last {
+            img.entry(a).or_insert(0xFF); // fill internal rmb/even gaps
+        }
+        // Even-pad: if the next free address would be odd, MASM appends one 0xFF.
+        if last % 2 == 0 {
+            img.entry(last + 1).or_insert(0xFF);
+        }
+        i = j;
+    }
+
+    img.into_iter().collect()
 }
 
 fn err(out: &mut Object, line: u32, msg: String) {

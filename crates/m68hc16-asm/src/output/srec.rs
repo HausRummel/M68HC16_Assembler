@@ -44,13 +44,14 @@ pub fn write_srecords(data: &[(u32, u8)], module: &str) -> String {
         }
         let mut off = 0;
         while off < run.len() {
-            let chunk = &run[off..(off + 16).min(run.len())];
             let addr = start + off as u32;
-            if addr <= 0xFFFF {
-                lines.push(record('1', 2, addr, chunk));
-            } else {
-                lines.push(record('2', 3, addr, chunk));
-            }
+            // HEX.exe targets a fixed record byte-count of 0x23 (= addr + data +
+            // checksum), so the data per record is 32 for an S1 (16-bit address)
+            // and 31 for an S2 (24-bit address).
+            let (rectype, alen) = if addr <= 0xFFFF { ('1', 2) } else { ('2', 3) };
+            let max_data = 0x22 - alen;
+            let chunk = &run[off..(off + max_data).min(run.len())];
+            lines.push(record(rectype, alen, addr, chunk));
             off += chunk.len();
         }
         i = j;
@@ -74,10 +75,24 @@ mod tests {
     }
 
     #[test]
-    fn splits_runs_into_16_byte_records() {
-        let data: Vec<(u32, u8)> = (0..20u32).map(|i| (0x2000 + i, i as u8)).collect();
+    fn splits_runs_into_32_byte_records() {
+        // HEX.exe puts up to 32 data bytes in an S1 record (fixed count 0x23).
+        let data: Vec<(u32, u8)> = (0..40u32).map(|i| (0x2000 + i, i as u8)).collect();
         let s = write_srecords(&data, "X");
         let s1 = s.lines().filter(|l| l.starts_with("S1")).count();
-        assert_eq!(s1, 2, "20 bytes -> 16 + 4 = two S1 records");
+        assert_eq!(s1, 2, "40 bytes -> 32 + 8 = two S1 records");
+        // First record carries 32 data bytes -> byte-count field 0x23.
+        let first = s.lines().find(|l| l.starts_with("S1")).unwrap();
+        assert!(first.starts_with("S1232000"), "got: {first}");
+    }
+
+    #[test]
+    fn s2_records_hold_31_bytes() {
+        // A 24-bit address needs an extra byte, so an S2 holds 31 data bytes to
+        // keep the fixed 0x23 count.
+        let data: Vec<(u32, u8)> = (0..31u32).map(|i| (0x20000 + i, i as u8)).collect();
+        let s = write_srecords(&data, "X");
+        let rec = s.lines().find(|l| l.starts_with("S2")).unwrap();
+        assert!(rec.starts_with("S22302 0000".replace(' ', "").as_str()), "got: {rec}");
     }
 }

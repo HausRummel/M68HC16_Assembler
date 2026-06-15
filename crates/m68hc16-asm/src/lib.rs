@@ -87,7 +87,8 @@ pub fn assemble(req: &AssembleRequest) -> AssembleResult {
 
     let stem = req.input.file_stem().and_then(|s| s.to_str()).unwrap_or("out");
     let s19_path = req.output_dir.join(format!("{stem}.S19"));
-    let text = output::srec::write_srecords(&obj.data, &format!("{stem}.S19"));
+    // HEX.exe converts `<name>.OBJ`, and records that input name in the S0 header.
+    let text = output::srec::write_srecords(&obj.data, &format!("{stem}.OBJ"));
     match std::fs::write(&s19_path, text) {
         Ok(()) => result.outputs.s_record = Some(s19_path),
         Err(e) => result
