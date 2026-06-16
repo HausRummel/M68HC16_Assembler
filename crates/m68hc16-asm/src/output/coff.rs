@@ -186,7 +186,11 @@ pub fn write_coff(
     }
     pad_align(&mut out, symptr);
     out.extend_from_slice(&symbytes);
-    out.extend_from_slice(&strtab);
+    // MASM omits the string table entirely (not even its 4-byte length) when no
+    // symbol name exceeds 8 chars; the file ends at the symbol table.
+    if strtab.len() > 4 {
+        out.extend_from_slice(&strtab);
+    }
     out
 }
 
@@ -310,11 +314,13 @@ pub fn section_list(data: &[(u32, u8)], spans: &[(u32, u32, Elem)], asct: bool) 
 /// the filled image for each non-BSS section. Prepends the always-present empty
 /// `.bss` section 0.
 fn build_sections(spans: &[(u32, u32, Elem)], img: &HashMap<u32, u8>, asct: bool) -> Vec<Section> {
-    // With `ASCT`, MASM's default `.bss` section sits empty at section 0 (all real
-    // content was redirected to `.asct`); without it the real regions ARE the
-    // sections, so there is no leading empty one.
+    // MASM's default `.bss` section is section 0 (empty, vaddr 0) when `ASCT`
+    // redirects all real content to `.asct`, OR when there is no content at all (a
+    // comment-/equate-only file still emits it). Without `ASCT` but WITH content,
+    // the real regions ARE the `.bss`/`.text`/`.data` sections, so there is no
+    // separate empty one.
     let mut secs = Vec::new();
-    if asct {
+    if asct || spans.is_empty() {
         secs.push(Section { name: ".bss", vaddr: 0, size: 0, flags: STYP_BSS, data: Vec::new() });
     }
     if spans.is_empty() {
