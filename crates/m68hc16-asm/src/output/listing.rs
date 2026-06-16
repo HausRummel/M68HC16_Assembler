@@ -45,17 +45,25 @@ use crate::symbols::{Kind, SymbolTable};
 pub fn body(list_lines: &[ListLine], line_emit: &[LineEmit]) -> String {
     let mut out = String::new();
     let mut asm_idx = 0usize;
+    let rel_col = has_rel_column(list_lines);
     for (i, ll) in list_lines.iter().enumerate() {
         let emit = next_emit(ll, line_emit, &mut asm_idx);
         if !ll.listed {
             continue;
         }
-        for row in line_rows(i + 1, ll.rel, ll.depth, emit, &ll.text) {
+        for row in line_rows(i + 1, ll.rel, ll.depth, emit, &ll.text, rel_col) {
             out.push_str(&row);
         }
     }
     out.push_str(&body_footer(list_lines.len()));
     out
+}
+
+/// Whether the listing carries the `Rel.` (per-file line number) column. MASM only
+/// prints it when the source pulls in another file — i.e. some line comes from an
+/// `INCLUDE` (depth > 0). A single flat file lists `Abs.` only.
+fn has_rel_column(list_lines: &[ListLine]) -> bool {
+    list_lines.iter().any(|ll| ll.depth > 0)
 }
 
 /// Take the next `LineEmit` for an `assembled` line, advancing the index. The
@@ -74,19 +82,27 @@ fn next_emit<'a>(ll: &ListLine, line_emit: &'a [LineEmit], asm_idx: &mut usize) 
 /// the empty line after the file's final newline (which `lines()` drops), so the
 /// tally is one past the highest `Abs`.
 fn body_footer(n_lines: usize) -> String {
-    format!("\r\n{} lines assembled\r\n", n_lines + 1)
+    // The count is right-justified in the 4-wide Abs column (wider numbers overflow
+    // it naturally, as the Abs field itself does).
+    format!("\r\n{:>4} lines assembled\r\n", n_lines + 1)
 }
 
 /// The physical `.LST` rows one source line contributes: one per object-code
 /// chunk (object code wraps at two 16-bit words), or a single row otherwise.
 /// `emit` is `None` for listed-but-not-assembled lines (INCLUDE / macro call).
-fn line_rows(abs: usize, rel: u32, depth: u32, emit: Option<&LineEmit>, text: &str) -> Vec<String> {
+fn line_rows(abs: usize, rel: u32, depth: u32, emit: Option<&LineEmit>, text: &str, rel_col: bool) -> Vec<String> {
     let isuf = if depth > 0 { 'i' } else { ' ' };
-    // Prefix occupies cols 0..12 (wider when Abs/Rel exceed 4 digits).
-    let pre = format!("{abs:>4} {rel:>4}{isuf}  ");
-    // Instruction wraps blank Rel on continuation rows; the abs field keeps its
-    // width and the Rel+suffix+gap (8 cols) become spaces.
-    let pre_cont = format!("{abs:>4}        ");
+    // Prefix occupies cols 0..12 (wider when Abs/Rel exceed 4 digits). Without the
+    // `Rel.` column (a flat, include-free source) the ` Rel.` field (5 cols) is
+    // dropped, so the prefix is just `{abs:>4}` + the suffix slot + 2-space gap.
+    let (pre, pre_cont) = if rel_col {
+        // Instruction continuation blanks Rel; the abs field keeps its width and the
+        // Rel+suffix+gap (8 cols) become spaces.
+        (format!("{abs:>4} {rel:>4}{isuf}  "), format!("{abs:>4}        "))
+    } else {
+        let p = format!("{abs:>4}{isuf}  ");
+        (p.clone(), p)
+    };
     // MASM caps the source column at 132 chars (rest of a long comment dropped);
     // detab first since the cap is on displayed columns.
     let src: String = detab(text).chars().take(SRC_WIDTH).collect();
@@ -198,8 +214,9 @@ pub fn paginate_body(list_lines: &[ListLine], line_emit: &[LineEmit], opts: &Pag
     let mut out = String::new();
     let mut asm_idx = 0usize;
     let mut page_no = 0usize;
-    // Force a header before the first row.
-    let mut lines_on_page = opts.plen;
+    let rel_col = has_rel_column(list_lines);
+    // Printed lines on the current page; set when the page-1 header is emitted below.
+    let mut lines_on_page;
     let mut pending_break = false;
     // MASM emits the listing in pass 2 with the title already set from pass 1, so
     // page 1 shows the source's title even though `TTL` appears a few lines in.
@@ -210,6 +227,14 @@ pub fn paginate_body(list_lines: &[ListLine], line_emit: &[LineEmit], opts: &Pag
     // `PAGE` only ejects when the listing is on (nothing to eject under `NOLIST`),
     // so track listing state to ignore `PAGE` inside `NOLIST` equate includes.
     let mut listing_on = true;
+
+    // MASM emits the page-1 header BEFORE processing any line (the first content
+    // starts in the top file at depth 0). Emitting it eagerly — rather than lazily
+    // on the first row — means a leading `PAGE` directive ejects to page 2, leaving
+    // page 1 a header-only page (matches the oracle for files that open with PAGE).
+    page_no = 1;
+    out.push_str(&page_header(1, opts.top_file, &title, opts.timestamp, Some(rel_col)));
+    lines_on_page = HEADER_LINES;
 
     for (i, ll) in list_lines.iter().enumerate() {
         let want = ll.depth as usize + 1;
@@ -238,10 +263,10 @@ pub fn paginate_body(list_lines: &[ListLine], line_emit: &[LineEmit], opts: &Pag
         if !ll.listed {
             continue;
         }
-        for row in line_rows(i + 1, ll.rel, ll.depth, emit, &ll.text) {
+        for row in line_rows(i + 1, ll.rel, ll.depth, emit, &ll.text, rel_col) {
             if pending_break || lines_on_page >= opts.plen {
                 page_no += 1;
-                out.push_str(&page_header(page_no, &cur_file, &title, opts.timestamp, true));
+                out.push_str(&page_header(page_no, &cur_file, &title, opts.timestamp, Some(rel_col)));
                 lines_on_page = HEADER_LINES;
                 pending_break = false;
             }
@@ -269,9 +294,12 @@ pub fn listing(
     let rows = symbol_rows(symbols, macros, sections, asct);
     let (sym, page_no) = paginate_symbols(&rows, opts, &title, page_no);
     out.push_str(&sym);
-    append_xref(&mut out, list_lines, line_emit, symbols, macros, &title, opts, page_no);
-    // MASM ends the listing with one trailing blank line.
-    out.push_str("\r\n");
+    // The Cross-Reference Table (and the listing's trailing blank line that follows
+    // it) appears only when there are program symbols to cross-reference; a file
+    // with only section symbols (e.g. a comment-only source) ends at `N symbols`.
+    if append_xref(&mut out, list_lines, line_emit, symbols, macros, &title, opts, page_no) {
+        out.push_str("\r\n");
+    }
     out
 }
 
@@ -285,7 +313,7 @@ fn paginate_symbols(rows: &[String], opts: &PageOpts, title: &str, mut page_no: 
     for (i, r) in rows.iter().enumerate() {
         if i % rows_per_page == 0 {
             page_no += 1;
-            out.push_str(&page_header(page_no, opts.top_file, title, opts.timestamp, false));
+            out.push_str(&page_header(page_no, opts.top_file, title, opts.timestamp, None));
             if i == 0 {
                 out.push_str(&format!("Symbol Table:\r\n\r\n{SYM_COLHDR}\r\n{SYM_DASHES}\r\n"));
             }
@@ -299,6 +327,8 @@ fn paginate_symbols(rows: &[String], opts: &PageOpts, title: &str, mut page_no: 
 
 /// Append the Cross-Reference Table to a full listing: for every program symbol
 /// and macro (ASCII-sorted, no section symbols), the definition + reference lines.
+/// Appends the Cross-Reference Table; returns whether any rows were emitted (false
+/// when there are no program symbols, so the caller can drop the trailing blank).
 fn append_xref(
     out: &mut String,
     list_lines: &[ListLine],
@@ -308,10 +338,11 @@ fn append_xref(
     title: &str,
     opts: &PageOpts,
     page_no: usize,
-) {
+) -> bool {
     let rows = xref_rows(list_lines, line_emit, symbols, macros);
     let (x, _) = paginate_xref(&rows, opts, title, page_no);
     out.push_str(&x);
+    !rows.is_empty()
 }
 
 /// One Cross-Reference entry: symbol name and its `(line, is_def)` entries sorted
@@ -474,7 +505,7 @@ fn paginate_xref(rows: &[XrefRow], opts: &PageOpts, title: &str, mut page_no: us
             };
             if content >= budget {
                 page_no += 1;
-                out.push_str(&page_header(page_no, opts.top_file, title, opts.timestamp, false));
+                out.push_str(&page_header(page_no, opts.top_file, title, opts.timestamp, None));
                 content = 0;
                 if first_page {
                     // The intro is extra — it does not count toward the row budget.
@@ -510,9 +541,10 @@ pub fn page_length(list_lines: &[ListLine]) -> usize {
 
 /// A page-header block (CRLF), led by a form-feed except on page 1: banner with a
 /// right-justified `Page N`, the file/timestamp line, the title, and a blank line.
-/// The body adds the two column-header rows (`columns = true`); the Symbol Table
-/// and Cross-Reference sections do not.
-fn page_header(page_no: usize, file: &str, title: &str, timestamp: &str, columns: bool) -> String {
+/// The body adds the two column-header rows (`columns = Some(rel_col)`, with the
+/// `Rel.` column present iff `rel_col`); the Symbol Table and Cross-Reference
+/// sections pass `None`.
+fn page_header(page_no: usize, file: &str, title: &str, timestamp: &str, columns: Option<bool>) -> String {
     const BANNER: &str = "Copyright 1993, Motorola Macro Assembler   Version 4.6";
     let page = format!("Page {page_no}");
     let pad = HEADER_WIDTH.saturating_sub(BANNER.len() + page.len());
@@ -521,9 +553,16 @@ fn page_header(page_no: usize, file: &str, title: &str, timestamp: &str, columns
         "{ff}{BANNER}{:pad$}{page}\r\n68HC16 - {file} - {timestamp}\r\n{title}\r\n\r\n",
         "",
     );
-    if columns {
-        h.push_str("Abs. Rel.   Loc    Obj. code   Source line\r\n");
-        h.push_str("---- ----   ------ ---------   -----------\r\n");
+    match columns {
+        Some(true) => {
+            h.push_str("Abs. Rel.   Loc    Obj. code   Source line\r\n");
+            h.push_str("---- ----   ------ ---------   -----------\r\n");
+        }
+        Some(false) => {
+            h.push_str("Abs.   Loc    Obj. code   Source line\r\n");
+            h.push_str("----   ------ ---------   -----------\r\n");
+        }
+        None => {}
     }
     h
 }
@@ -675,7 +714,7 @@ mod tests {
             "   4    4          0000 00FF   K       equ  $FF\r\n",
             "   5    5   002020             R       rmb  4\r\n",
             "   6    9i  002024 27                  nop\r\n",
-            "\r\n7 lines assembled\r\n",
+            "\r\n   7 lines assembled\r\n",
         );
         assert_eq!(got, want);
     }
@@ -718,7 +757,7 @@ mod tests {
 
     #[test]
     fn page_header_right_justifies_page_number() {
-        let h = super::page_header(123, "F.ASM", "T", "TS ", false);
+        let h = super::page_header(123, "F.ASM", "T", "TS ", None);
         let line1 = h.trim_start_matches('\u{0c}').lines().next().unwrap();
         assert_eq!(line1.len(), super::HEADER_WIDTH); // 79 cols
         assert!(line1.ends_with("Page 123"));
@@ -727,13 +766,20 @@ mod tests {
     #[test]
     fn body_truncates_source_at_132() {
         let long = format!("* {}", "x".repeat(200));
+        // A flat (include-free) source has no `Rel.` column, so the prefix is 26.
         let lines = [ll(&long, 1, 0)];
         let emit = [LineEmit::default()];
         let got = super::body(&lines, &emit);
-        // Prefix (31) + 132-char source + CRLF, then the footer.
         let first = got.lines().next().unwrap();
-        assert_eq!(first.len(), 31 + 132);
+        assert_eq!(first.len(), 26 + 132); // no-Rel prefix (26) + 132-char source
         assert!(first.ends_with("xxx"));
+        assert!(first.starts_with("   1   ")); // Abs only, no Rel field
+
+        // With an include (depth > 0) the `Rel.` column returns -> prefix 31.
+        let lines2 = [ll(&long, 1, 0), ll("  nop", 1, 1)];
+        let emit2 = [LineEmit::default(), LineEmit::default()];
+        let first2 = super::body(&lines2, &emit2).lines().next().unwrap().to_string();
+        assert_eq!(first2.len(), 31 + 132);
     }
 
 
