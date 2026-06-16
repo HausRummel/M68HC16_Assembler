@@ -203,6 +203,9 @@ pub fn assemble_source_in(src: &str, base_dir: Option<&Path>) -> Object {
             if let Ok(path) = std::env::var("HC16_SYMCTX") {
                 dump_sym_ctx(&obj, &lines, &path);
             }
+            if let Ok(path) = std::env::var("HC16_SYMEVENTS") {
+                dump_sym_events(&obj, &lines, &obj.line_emit, &path);
+            }
             if let Ok(path) = std::env::var("HC16_SYMS") {
                 use std::fmt::Write as _;
                 let mut s = String::new();
@@ -358,6 +361,118 @@ fn dump_sym_ctx(obj: &Object, lines: &[String], path: &str) {
             fdb_ref.contains(name) as u8,
             fcb_ref.contains(name) as u8,
         );
+    }
+    let _ = std::fs::write(path, s);
+}
+
+/// Single-char class for a line's op, used by the ordered class-event dump
+/// (`HC16_SYMEVENTS`): W=fdb/word, B=fcb/fcc/byte, R=rmb/reserve, E=equ/set,
+/// C=instruction (code), `-`=anything else (org, listing dirs, none).
+fn op_elem_char(op: Option<&str>) -> char {
+    let Some(op) = op else { return '-' };
+    let op = op.to_ascii_lowercase();
+    match op.as_str() {
+        "fdb" | "dc.w" => 'W',
+        "fcb" | "dc.b" | "fcc" => 'B',
+        "rmb" | "ds" => 'R',
+        "equ" | "set" => 'E',
+        _ if isa::lookup(&op).is_some() => 'C',
+        _ => '-',
+    }
+}
+
+/// Debug dump (env `HC16_SYMEVENTS`): per program symbol, the ORDERED sequence of
+/// class events that MASM folds into the COFF `type`. Each event is `<role><elem>`
+/// where role is `d` (defined here: the symbol is this line's label/equate) or `u`
+/// (used here: the symbol appears in the operand), and elem is [`op_elem_char`] of
+/// the line's op. Events are in processed-line order, mirroring [`order_symbols`]'s
+/// within-line ordering (a data directive reduces its operands before binding its
+/// label; everything else binds the label first). Static rules can't reproduce the
+/// type (proven); this stream lets the upgrade state machine be fit against gold.
+fn dump_sym_events(obj: &Object, lines: &[String], line_emit: &[LineEmit], path: &str) {
+    use std::fmt::Write as _;
+    let mut events: HashMap<String, String> = HashMap::new();
+    // `defctx` = the running data-element context at a symbol's definition: the
+    // element of the most recent location-advancing directive seen so far (an EQU
+    // amid byte `rmb` allocations inherits Byte; one in a pure-equate prologue sees
+    // none). This is what types an absolute equate that is never data-used.
+    let mut defctx: HashMap<String, char> = HashMap::new();
+    // `listed` = whether listing was ON (no active NOLIST) at the definition line.
+    let mut listed_at: HashMap<String, char> = HashMap::new();
+    let mut listing_on = true;
+    let mut running = '-';
+    let mut push = |name: &str, role: char, oe: char| {
+        let s = events.entry(name.to_string()).or_default();
+        if !s.is_empty() {
+            s.push(',');
+        }
+        s.push(role);
+        s.push(oe);
+    };
+    for (i, line) in lines.iter().enumerate() {
+        if !line_emit.get(i).map(|e| e.processed).unwrap_or(true) {
+            continue;
+        }
+        let p = split_line(line);
+        let oe = op_elem_char(p.op);
+        match p.op.map(|o| o.to_ascii_lowercase()).as_deref() {
+            Some("nolist") => listing_on = false,
+            Some("list") => listing_on = true,
+            _ => {}
+        }
+        if let Some(lbl) = p.label {
+            defctx.entry(lbl.to_string()).or_insert(running);
+            listed_at.entry(lbl.to_string()).or_insert(if listing_on { 'L' } else { 'N' });
+        }
+        let inherent = p
+            .op
+            .is_some_and(|o| isa::lookup(o).is_some_and(|d| d.modes.iter().all(|m| m.mode == Mode::Inherent)));
+        let ops: Vec<&str> = if inherent { Vec::new() } else { p.operand.map(identifiers).unwrap_or_default() };
+        let is_data = matches!(
+            p.op.map(|o| o.to_ascii_lowercase()).as_deref(),
+            Some("fcb" | "fdb" | "fcc" | "dc.b" | "dc.w")
+        );
+        if is_data {
+            for id in &ops {
+                push(id, 'u', oe);
+            }
+            if let Some(lbl) = p.label {
+                push(lbl, 'd', oe);
+            }
+        } else {
+            if let Some(lbl) = p.label {
+                push(lbl, 'd', oe);
+            }
+            for id in &ops {
+                push(id, 'u', oe);
+            }
+        }
+        // The directive on this line becomes the running context for what follows.
+        if matches!(oe, 'W' | 'B' | 'R' | 'C') {
+            running = oe;
+        }
+    }
+    let addr_elem: HashMap<u32, Elem> = HashMap::from_iter(obj.spans.iter().map(|&(a, _, k)| (a, k)));
+    let es = |e: Option<Elem>| match e {
+        Some(Elem::Word) => 'W',
+        Some(Elem::Byte) => 'B',
+        Some(Elem::Reserve) => 'R',
+        Some(Elem::Code) => 'C',
+        None => '-',
+    };
+    let mut s = String::new();
+    let _ = writeln!(s, "name\tvalue\tkind\tdefctx\taddr\tlisted\tevents");
+    for (name, value) in obj.symbols.iter() {
+        let kind_s = match obj.symbols.get_full(name).map(|(_, k)| k) {
+            Some(Kind::Abs) => "Abs",
+            Some(Kind::Rel) => "Rel",
+            None => "?",
+        };
+        let dctx = defctx.get(name).copied().unwrap_or('-');
+        let ae = es(addr_elem.get(&(value as u32)).copied());
+        let lst = listed_at.get(name).copied().unwrap_or('L');
+        let ev = events.get(name).map(String::as_str).unwrap_or("");
+        let _ = writeln!(s, "{name}\t{value:X}\t{kind_s}\t{dctx}\t{ae}\t{lst}\t{ev}");
     }
     let _ = std::fs::write(path, s);
 }
