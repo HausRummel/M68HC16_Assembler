@@ -164,15 +164,11 @@ pub fn write_coff(
 
     for (i, s) in sections.iter().enumerate() {
         if scnptr[i] != 0 {
-            while out.len() < scnptr[i] as usize {
-                out.push(0);
-            }
+            pad_align(&mut out, scnptr[i] as usize);
             out.extend_from_slice(&s.data);
         }
     }
-    while out.len() < symptr {
-        out.push(0);
-    }
+    pad_align(&mut out, symptr);
     out.extend_from_slice(&symbytes);
     out.extend_from_slice(&strtab);
     out
@@ -206,6 +202,17 @@ fn elem_type(e: Elem) -> u16 {
 
 fn align4(n: usize) -> usize {
     (n + 3) & !3
+}
+
+/// Pad `out` up to `target` for COFF's 4-byte section-data file alignment. MASM
+/// does not zero-fill the gap: it leaves a `nop` word (0x274C) there, byte-swapped
+/// like all section data (-> bytes 0x4C, 0x27). Section data is always even-length,
+/// so the gap is 0 or 2 bytes and starts on a word boundary; emit the swapped-`nop`
+/// pattern by file-offset parity to reproduce the gold image byte-for-byte.
+fn pad_align(out: &mut Vec<u8>, target: usize) {
+    while out.len() < target {
+        out.push(if out.len() % 2 == 0 { 0x4C } else { 0x27 });
+    }
 }
 
 #[cfg(test)]
