@@ -1,41 +1,29 @@
 //! Flat binary-image writer.
 //!
 //! The `.S19` encodes the assembled image as address-tagged records; this writes
-//! the same bytes as a raw burnable ROM image. The image spans whole 64 KB pages:
-//! from the page containing the lowest emitted address down to its page base, up to
-//! the page boundary above the highest emitted address. Gaps (between sections, or
-//! reserved holes) and the trailing pad are filled with `0xFF`, the flash-erase
-//! value the section fill already uses. (The CPU16 memory map is paged in 64 KB
-//! banks — Page $0 = 0x00000-0x0FFFF, code Pages $1-$3 = 0x10000-0x3FFFF — so a ROM
-//! image rounds out to page boundaries: code reaching into Page $3 yields a 0x40000
-//! (256 KB) image, matching the reference ROM images the original toolchain
-//! produced.) An image with no emitted bytes (a reserve- or equate-only module)
-//! yields an empty file.
+//! the same bytes as a raw burnable ROM image over a fixed `[base, base+size)`
+//! window, with every address nothing emitted into (gaps between sections, reserved
+//! holes, the leading/trailing pad) set to `fill`. This mirrors the common
+//! `srec_cat <s19> -fill 0xFF 0x00000 0x40000 -binary` flow: the target ROM is a
+//! 0x40000 (256 KB) image at base 0 filled with 0xFF (flash-erase). `base`, `size`
+//! and `fill` are all caller-chosen so the same writer serves other HC16 targets.
 
-/// Fill byte for unwritten addresses inside the image extent — `0xFF`, matching
-/// erased flash and the intra-section fill in `fill_sections`.
-const FILL: u8 = 0xFF;
-
-/// CPU16 bank/page size; the binary image is rounded out to whole pages.
-const PAGE: u32 = 0x10000;
-
-/// Render `(address, byte)` data as a flat ROM image rounded to 64 KB pages.
-/// Returns `(base, bytes)` where `base` is the page-aligned load address and
-/// `bytes[i]` is the byte at `base + i`. Empty input yields `(0, [])`.
-pub fn write_binary(data: &[(u32, u8)]) -> (u32, Vec<u8>) {
-    let (Some(min), Some(max)) = (
-        data.iter().map(|&(a, _)| a).min(),
-        data.iter().map(|&(a, _)| a).max(),
-    ) else {
-        return (0, Vec::new());
-    };
-    let base = (min / PAGE) * PAGE; // page floor
-    let end = (max / PAGE + 1) * PAGE; // exclusive page ceiling
-    let mut img = vec![FILL; (end - base) as usize];
+/// Render `(address, byte)` data as a flat binary image of exactly `size` bytes
+/// starting at `base`, every unwritten byte set to `fill`. Returns the image and
+/// the count of input bytes that fell OUTSIDE `[base, base+size)` (and were thus
+/// dropped — a non-zero count means `size`/`base` are too small for the program).
+pub fn write_binary(data: &[(u32, u8)], base: u32, size: u32, fill: u8) -> (Vec<u8>, usize) {
+    let mut img = vec![fill; size as usize];
+    let mut dropped = 0usize;
     for &(addr, byte) in data {
-        img[(addr - base) as usize] = byte;
+        // `addr - base` only when in range, computed to avoid u32 underflow/overflow.
+        if addr >= base && addr - base < size {
+            img[(addr - base) as usize] = byte;
+        } else {
+            dropped += 1;
+        }
     }
-    (base, img)
+    (img, dropped)
 }
 
 #[cfg(test)]
@@ -43,39 +31,40 @@ mod tests {
     use super::*;
 
     #[test]
-    fn empty_input_is_empty() {
-        assert_eq!(write_binary(&[]), (0, Vec::new()));
+    fn empty_data_is_all_fill() {
+        let (img, dropped) = write_binary(&[], 0, 0x40000, 0xFF);
+        assert_eq!(img.len(), 0x40000);
+        assert!(img.iter().all(|&b| b == 0xFF));
+        assert_eq!(dropped, 0);
     }
 
     #[test]
-    fn rounds_to_page_base_zero_and_fills_ff() {
-        // Bytes in Page $0: 0x2000, 0x2001, a gap, then 0x2004.
+    fn places_bytes_and_fills_gaps() {
+        // The default window: base 0, 256 KB, 0xFF fill.
         let data = [(0x2000, 0x12), (0x2001, 0x34), (0x2004, 0x56)];
-        let (base, img) = write_binary(&data);
-        assert_eq!(base, 0); // page floor of 0x2000
-        assert_eq!(img.len(), 0x10000); // one whole 64 KB page
+        let (img, dropped) = write_binary(&data, 0, 0x40000, 0xFF);
+        assert_eq!(img.len(), 0x40000);
         assert_eq!(&img[0x2000..0x2005], &[0x12, 0x34, 0xFF, 0xFF, 0x56]);
         assert_eq!(img[0], 0xFF);
-        assert_eq!(img[0xFFFF], 0xFF);
-    }
-
-    #[test]
-    fn base_is_page_floor_extent_is_page_ceiling() {
-        // Data spanning Pages $1-$3 -> base 0x10000, extent through 0x3FFFF.
-        let (base, img) = write_binary(&[(0x10000, 0xAB), (0x37EB5, 0xCD)]);
-        assert_eq!(base, 0x10000);
-        assert_eq!(img.len(), 0x30000); // pages $1,$2,$3
-        assert_eq!(img[0], 0xAB);
-        assert_eq!(img[0x37EB5 - 0x10000], 0xCD);
         assert_eq!(*img.last().unwrap(), 0xFF);
+        assert_eq!(dropped, 0);
     }
 
     #[test]
-    fn jte_like_image_is_256k_from_zero() {
-        // Vectors at 0 + data reaching into Page $3 -> a 0x40000 image at base 0,
-        // matching the reference ROM-image extent.
-        let (base, img) = write_binary(&[(0, 0x0F), (0x37EB5, 0x42)]);
-        assert_eq!(base, 0);
-        assert_eq!(img.len(), 0x40000);
+    fn custom_base_size_and_fill() {
+        // A small window based at 0x10000, zero-filled.
+        let (img, dropped) = write_binary(&[(0x10000, 0xAB), (0x10FFF, 0xCD)], 0x10000, 0x1000, 0x00);
+        assert_eq!(img.len(), 0x1000);
+        assert_eq!(img[0], 0xAB);
+        assert_eq!(img[0xFFF], 0xCD);
+        assert_eq!(img[1], 0x00);
+        assert_eq!(dropped, 0);
+    }
+
+    #[test]
+    fn out_of_window_bytes_are_dropped_and_counted() {
+        let (img, dropped) = write_binary(&[(0x100, 0x11), (0x50000, 0x22)], 0, 0x40000, 0xFF);
+        assert_eq!(img[0x100], 0x11);
+        assert_eq!(dropped, 1); // 0x50000 is past the 0x40000 window
     }
 }

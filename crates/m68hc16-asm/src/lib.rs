@@ -24,14 +24,47 @@ use diag::Diagnostic;
 /// the OBJ timestamp it is the only `.LST` field that cannot match a given run.
 const LST_TIMESTAMP: &str = "Mon Jun 15 09:39:05 ";
 
+/// Which output files a run should write.
+#[derive(Debug, Clone, Copy)]
+pub struct Outputs {
+    pub obj: bool,
+    pub s19: bool,
+    pub lst: bool,
+    pub bin: bool,
+}
+
+impl Default for Outputs {
+    /// Matches the original toolchain: `.OBJ`/`.S19`/`.LST` on, raw `.bin` opt-in.
+    fn default() -> Self {
+        Outputs { obj: true, s19: true, lst: true, bin: false }
+    }
+}
+
+/// Raw `.bin` image window: a `size`-byte image starting at `base`, gaps and pad
+/// set to `fill`. The default is a 256 KB ROM window — base 0, 0x40000 (256 KB),
+/// 0xFF — but all three are configurable for other HC16 targets.
+#[derive(Debug, Clone, Copy)]
+pub struct BinOptions {
+    pub fill: u8,
+    pub base: u32,
+    pub size: u32,
+}
+
+impl Default for BinOptions {
+    fn default() -> Self {
+        BinOptions { fill: 0xFF, base: 0, size: 0x40000 }
+    }
+}
+
 /// Inputs and configuration for a single assembler run.
 #[derive(Debug, Clone)]
 pub struct AssembleRequest {
     pub input: PathBuf,
     pub output_dir: PathBuf,
-    /// Also write the raw binary image (`<stem>.bin`) next to the `.S19`. The
-    /// S-record always lands; the binary is opt-in.
-    pub emit_binary: bool,
+    /// Which files to write.
+    pub outputs: Outputs,
+    /// `.bin` window/fill (used only when `outputs.bin`).
+    pub bin: BinOptions,
 }
 
 /// Files produced by a successful assembler run.
@@ -100,32 +133,36 @@ pub fn assemble(req: &AssembleRequest) -> AssembleResult {
 
     // Relocatable COFF object (the intermediate HEX.exe converts to the S-record).
     // Timestamp is left 0; it is the only non-deterministic field MASM writes.
-    let obj_path = req.output_dir.join(format!("{stem}.OBJ"));
-    let obj_bytes = output::coff::write_coff(&obj.data, &obj.spans, &obj.symbols, &obj.sym_order, obj.asct, 0);
-    match std::fs::write(&obj_path, obj_bytes) {
-        Ok(()) => result.outputs.object = Some(obj_path),
-        Err(e) => result
-            .diagnostics
-            .push(Diagnostic::error(format!("cannot write {}: {e}", obj_path.display()))),
+    if req.outputs.obj {
+        let obj_path = req.output_dir.join(format!("{stem}.OBJ"));
+        let obj_bytes = output::coff::write_coff(&obj.data, &obj.spans, &obj.symbols, &obj.sym_order, obj.asct, 0);
+        match std::fs::write(&obj_path, obj_bytes) {
+            Ok(()) => result.outputs.object = Some(obj_path),
+            Err(e) => result
+                .diagnostics
+                .push(Diagnostic::error(format!("cannot write {}: {e}", obj_path.display()))),
+        }
     }
 
     // Paginated assembly listing (`.LST`): body + Symbol Table under MASM's page
     // headers. The header filename is the input name and the per-page timestamp is
     // wall-clock in MASM (non-deterministic) — we stamp one fixed value.
-    let lst_path = req.output_dir.join(format!("{stem}.LST"));
     let top_file = req.input.file_name().and_then(|s| s.to_str()).unwrap_or("IN.ASM");
     let secs = output::coff::section_list(&obj.data, &obj.spans, obj.asct);
-    let opts = output::listing::PageOpts {
-        top_file,
-        timestamp: LST_TIMESTAMP,
-        plen: output::listing::page_length(&obj.list_lines),
-    };
-    let lst = output::listing::listing(&obj.list_lines, &obj.line_emit, &obj.symbols, &obj.macros, &secs, obj.asct, &opts);
-    match std::fs::write(&lst_path, output::encode_latin1(&lst)) {
-        Ok(()) => result.outputs.listing = Some(lst_path),
-        Err(e) => result
-            .diagnostics
-            .push(Diagnostic::error(format!("cannot write {}: {e}", lst_path.display()))),
+    if req.outputs.lst {
+        let lst_path = req.output_dir.join(format!("{stem}.LST"));
+        let opts = output::listing::PageOpts {
+            top_file,
+            timestamp: LST_TIMESTAMP,
+            plen: output::listing::page_length(&obj.list_lines),
+        };
+        let lst = output::listing::listing(&obj.list_lines, &obj.line_emit, &obj.symbols, &obj.macros, &secs, obj.asct, &opts);
+        match std::fs::write(&lst_path, output::encode_latin1(&lst)) {
+            Ok(()) => result.outputs.listing = Some(lst_path),
+            Err(e) => result
+                .diagnostics
+                .push(Diagnostic::error(format!("cannot write {}: {e}", lst_path.display()))),
+        }
     }
 
     // Dev validation hook: dump the listing's Symbol Table block (env HC16_LST).
@@ -154,27 +191,37 @@ pub fn assemble(req: &AssembleRequest) -> AssembleResult {
         let _ = std::fs::write(&path, output::encode_latin1(&text));
     }
 
-    let s19_path = req.output_dir.join(format!("{stem}.S19"));
-    // HEX.exe converts `<name>.OBJ`, and records that input name in the S0 header.
-    let text = output::srec::write_srecords(&obj.data, &format!("{stem}.OBJ"));
-    match std::fs::write(&s19_path, text) {
-        Ok(()) => result.outputs.s_record = Some(s19_path),
-        Err(e) => result
-            .diagnostics
-            .push(Diagnostic::error(format!("cannot write {}: {e}", s19_path.display()))),
+    if req.outputs.s19 {
+        let s19_path = req.output_dir.join(format!("{stem}.S19"));
+        // HEX.exe converts `<name>.OBJ`, and records that input name in the S0 header.
+        let text = output::srec::write_srecords(&obj.data, &format!("{stem}.OBJ"));
+        match std::fs::write(&s19_path, text) {
+            Ok(()) => result.outputs.s_record = Some(s19_path),
+            Err(e) => result
+                .diagnostics
+                .push(Diagnostic::error(format!("cannot write {}: {e}", s19_path.display()))),
+        }
     }
 
-    // Optional raw binary image (`<stem>.bin`): the same bytes as the `.S19`, laid
-    // out flat from the lowest emitted address with gaps filled 0xFF.
-    if req.emit_binary {
+    // Raw binary image (`<stem>.bin`): a fixed `[base, base+size)` window filled with
+    // `fill`, the emitted bytes overlaid. Defaults to a 256 KB / 0xFF window.
+    if req.outputs.bin {
         let bin_path = req.output_dir.join(format!("{stem}.bin"));
-        let (base, img) = output::bin::write_binary(&obj.data);
+        let (img, dropped) = output::bin::write_binary(&obj.data, req.bin.base, req.bin.size, req.bin.fill);
         match std::fs::write(&bin_path, &img) {
             Ok(()) => {
                 result.diagnostics.push(Diagnostic::note(format!(
-                    "binary: {} bytes at base 0x{base:06X}",
-                    img.len()
+                    "binary: {} bytes, 0x{:06X}-0x{:06X}, fill 0x{:02X}",
+                    img.len(),
+                    req.bin.base,
+                    req.bin.base.wrapping_add(req.bin.size),
+                    req.bin.fill
                 )));
+                if dropped > 0 {
+                    result.diagnostics.push(Diagnostic::warning(format!(
+                        "{dropped} byte(s) fell outside the .bin window and were dropped — increase the size/base"
+                    )));
+                }
                 result.outputs.binary = Some(bin_path);
             }
             Err(e) => result
