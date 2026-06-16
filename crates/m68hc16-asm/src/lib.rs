@@ -96,7 +96,7 @@ pub fn assemble(req: &AssembleRequest) -> AssembleResult {
     // Relocatable COFF object (the intermediate HEX.exe converts to the S-record).
     // Timestamp is left 0; it is the only non-deterministic field MASM writes.
     let obj_path = req.output_dir.join(format!("{stem}.OBJ"));
-    let obj_bytes = output::coff::write_coff(&obj.data, &obj.spans, &obj.symbols, &obj.sym_order, 0);
+    let obj_bytes = output::coff::write_coff(&obj.data, &obj.spans, &obj.symbols, &obj.sym_order, obj.asct, 0);
     if let Err(e) = std::fs::write(&obj_path, obj_bytes) {
         result
             .diagnostics
@@ -108,13 +108,13 @@ pub fn assemble(req: &AssembleRequest) -> AssembleResult {
     // wall-clock in MASM (non-deterministic) — we stamp one fixed value.
     let lst_path = req.output_dir.join(format!("{stem}.LST"));
     let top_file = req.input.file_name().and_then(|s| s.to_str()).unwrap_or("IN.ASM");
-    let secs = output::coff::section_list(&obj.data, &obj.spans);
+    let secs = output::coff::section_list(&obj.data, &obj.spans, obj.asct);
     let opts = output::listing::PageOpts {
         top_file,
         timestamp: LST_TIMESTAMP,
         plen: output::listing::page_length(&obj.list_lines),
     };
-    let lst = output::listing::listing(&obj.list_lines, &obj.line_emit, &obj.symbols, &obj.macros, &secs, &opts);
+    let lst = output::listing::listing(&obj.list_lines, &obj.line_emit, &obj.symbols, &obj.macros, &secs, obj.asct, &opts);
     match std::fs::write(&lst_path, output::encode_latin1(&lst)) {
         Ok(()) => result.outputs.listing = Some(lst_path),
         Err(e) => result
@@ -124,7 +124,7 @@ pub fn assemble(req: &AssembleRequest) -> AssembleResult {
 
     // Dev validation hook: dump the listing's Symbol Table block (env HC16_LST).
     if let Ok(path) = std::env::var("HC16_LST") {
-        let _ = std::fs::write(&path, output::listing::symbol_table(&obj.symbols, &obj.macros, &secs));
+        let _ = std::fs::write(&path, output::listing::symbol_table(&obj.symbols, &obj.macros, &secs, obj.asct));
     }
     // Dev validation hook: dump the listing body (env HC16_LSTBODY).
     if let Ok(path) = std::env::var("HC16_LSTBODY") {
@@ -135,9 +135,13 @@ pub fn assemble(req: &AssembleRequest) -> AssembleResult {
     // top-file name + a fixed timestamp (the real per-page timestamp is wall-clock,
     // so comparisons normalise it).
     if let Ok(path) = std::env::var("HC16_LSTPAGE").or_else(|_| std::env::var("HC16_LSTFULL")) {
-        let oracle_opts = output::listing::PageOpts { top_file: "IN.ASM", timestamp: LST_TIMESTAMP, plen: 60 };
+        let oracle_opts = output::listing::PageOpts {
+            top_file: "IN.ASM",
+            timestamp: LST_TIMESTAMP,
+            plen: output::listing::page_length(&obj.list_lines),
+        };
         let text = if std::env::var("HC16_LSTFULL").is_ok() {
-            output::listing::listing(&obj.list_lines, &obj.line_emit, &obj.symbols, &obj.macros, &secs, &oracle_opts)
+            output::listing::listing(&obj.list_lines, &obj.line_emit, &obj.symbols, &obj.macros, &secs, obj.asct, &oracle_opts)
         } else {
             output::listing::paginate_body(&obj.list_lines, &obj.line_emit, &oracle_opts).0
         };

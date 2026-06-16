@@ -53,6 +53,11 @@ pub struct Object {
     /// k-th `assembled` [`ListLine`]). Populated each pass; the converged pass's
     /// is the one returned.
     pub line_emit: Vec<LineEmit>,
+    /// Whether the source uses the `ASCT` (absolute-section) directive. MASM's
+    /// COFF section model depends on it: with `ASCT`, real regions are named
+    /// `.asct` and a leading empty `.bss` is section 0; without it, regions are
+    /// named by content (`.bss`/`.text`/`.data`) and there is no empty section.
+    pub asct: bool,
 }
 
 /// The `Loc` and object-code a single source line contributes to the `.LST`
@@ -171,6 +176,12 @@ pub fn assemble_source_in(src: &str, base_dir: Option<&Path>) -> Object {
     // whose evaluator masks undefined-ness behind a zero placeholder.
     let def_line = definition_lines(&lines);
 
+    // Whether the source declares an absolute section (`ASCT`); drives COFF
+    // section naming/layout (see `Object::asct`).
+    let asct = lines
+        .iter()
+        .any(|l| split_line(l).op.is_some_and(|o| o.eq_ignore_ascii_case("asct")));
+
     // Phase 1: commit operand sizes in a single forward scan.
     let mut widths: HashMap<u32, bool> = HashMap::new();
     let pass1 = run_pass(&lines, &SymbolTable::new(), &def_line, Sizing::Record(&mut widths));
@@ -189,6 +200,7 @@ pub fn assemble_source_in(src: &str, base_dir: Option<&Path>) -> Object {
             obj.sym_order = order_symbols(&obj.symbols, &lines, &obj.line_emit);
             obj.macros = macro_names.clone();
             obj.list_lines = list_lines.clone();
+            obj.asct = asct;
             if let Ok(path) = std::env::var("HC16_LISTLINES") {
                 use std::fmt::Write as _;
                 let mut s = String::new();
@@ -230,6 +242,7 @@ pub fn assemble_source_in(src: &str, base_dir: Option<&Path>) -> Object {
     let mut obj = run_pass(&lines, &symbols, &def_line, Sizing::Use(&widths));
     obj.data = fill_sections(&obj.data, &obj.org_targets);
     obj.sym_order = order_symbols(&obj.symbols, &lines, &obj.line_emit);
+    obj.asct = asct;
     obj.macros = macro_names;
     obj.list_lines = list_lines;
     obj.diagnostics

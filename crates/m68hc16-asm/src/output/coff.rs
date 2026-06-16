@@ -42,10 +42,11 @@ pub fn write_coff(
     spans: &[(u32, u32, Elem)],
     symbols: &SymbolTable,
     sym_order: &[(String, Option<Elem>)],
+    asct: bool,
     timestamp: u32,
 ) -> Vec<u8> {
     let img: HashMap<u32, u8> = data.iter().copied().collect();
-    let sections = build_sections(spans, &img);
+    let sections = build_sections(spans, &img, asct);
 
     // Section number (1-based) of the first section sharing each name -> the
     // scnum MASM gives every symbol/section of that name.
@@ -54,6 +55,21 @@ pub fn write_coff(
         first_scnum.entry(s.name).or_insert((i + 1) as i16);
     }
     let asct_scnum = *first_scnum.get(".asct").unwrap_or(&2);
+    // scnum of a relocatable symbol = its containing section's scnum. With `ASCT`
+    // every program symbol lives in an `.asct` section (scnum 2); without it, the
+    // symbol takes the scnum of whichever content section (`.bss`/`.text`/`.data`)
+    // holds its address. (jte: all Rel -> 2, unchanged; BASE_RAM: all Rel -> .bss 1.)
+    let rel_scnum = |value: u32| -> i16 {
+        if asct {
+            asct_scnum
+        } else {
+            sections
+                .iter()
+                .find(|s| s.vaddr <= value && value < s.vaddr + s.size)
+                .and_then(|s| first_scnum.get(s.name).copied())
+                .unwrap_or(1)
+        }
+    };
 
     // ---- file offsets ----
     let nsec = sections.len();
@@ -93,7 +109,7 @@ pub fn write_coff(
         let (scnum, typ) = match kind {
             Kind::Abs => (-1i16, ctx.map_or(0, elem_type)),
             Kind::Rel => (
-                asct_scnum,
+                rel_scnum(value as u32),
                 match ctx {
                     Some(e) => elem_type(*e),
                     None => start.get(&(value as u32)).copied().map_or(0, elem_type),
@@ -261,7 +277,7 @@ mod tests {
                    KONST   equ  $1234\n\
                    \x20       end\n";
         let obj = assemble_source(src);
-        let bytes = super::write_coff(&obj.data, &obj.spans, &obj.symbols, &obj.sym_order, 0);
+        let bytes = super::write_coff(&obj.data, &obj.spans, &obj.symbols, &obj.sym_order, obj.asct, 0);
 
         assert_eq!(u16::from_le_bytes([bytes[0], bytes[1]]), 0x0330, "COFF magic");
         assert_eq!(u16::from_le_bytes([bytes[18], bytes[19]]), 0x0204, "header flags");
@@ -285,16 +301,22 @@ mod tests {
 }
 
 /// `(name, vaddr)` of each section, for the listing's symbol-table section rows.
-pub fn section_list(data: &[(u32, u8)], spans: &[(u32, u32, Elem)]) -> Vec<(&'static str, u32)> {
+pub fn section_list(data: &[(u32, u8)], spans: &[(u32, u32, Elem)], asct: bool) -> Vec<(&'static str, u32)> {
     let img: HashMap<u32, u8> = data.iter().copied().collect();
-    build_sections(spans, &img).into_iter().map(|s| (s.name, s.vaddr)).collect()
+    build_sections(spans, &img, asct).into_iter().map(|s| (s.name, s.vaddr)).collect()
 }
 
 /// Partition the spans into contiguous sections (gaps separate them) and slice
 /// the filled image for each non-BSS section. Prepends the always-present empty
 /// `.bss` section 0.
-fn build_sections(spans: &[(u32, u32, Elem)], img: &HashMap<u32, u8>) -> Vec<Section> {
-    let mut secs = vec![Section { name: ".bss", vaddr: 0, size: 0, flags: STYP_BSS, data: Vec::new() }];
+fn build_sections(spans: &[(u32, u32, Elem)], img: &HashMap<u32, u8>, asct: bool) -> Vec<Section> {
+    // With `ASCT`, MASM's default `.bss` section sits empty at section 0 (all real
+    // content was redirected to `.asct`); without it the real regions ARE the
+    // sections, so there is no leading empty one.
+    let mut secs = Vec::new();
+    if asct {
+        secs.push(Section { name: ".bss", vaddr: 0, size: 0, flags: STYP_BSS, data: Vec::new() });
+    }
     if spans.is_empty() {
         return secs;
     }
@@ -334,7 +356,19 @@ fn build_sections(spans: &[(u32, u32, Elem)], img: &HashMap<u32, u8>) -> Vec<Sec
             size = end - vaddr; // reserve extent, not padded
             data = Vec::new();
         }
-        secs.push(Section { name: ".asct", vaddr, size, flags, data });
+        // With `ASCT` every region is the single absolute section `.asct`; without
+        // it the region is named by its content (matches the BASE_RAM oracle: pure
+        // reserve -> `.bss`).
+        let name = if asct {
+            ".asct"
+        } else {
+            match flags {
+                STYP_TEXT => ".text",
+                STYP_DATA => ".data",
+                _ => ".bss",
+            }
+        };
+        secs.push(Section { name, vaddr, size, flags, data });
         i = j;
     }
     secs

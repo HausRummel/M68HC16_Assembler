@@ -261,11 +261,12 @@ pub fn listing(
     symbols: &SymbolTable,
     macros: &[String],
     sections: &[(&str, u32)],
+    asct: bool,
     opts: &PageOpts,
 ) -> String {
     let (mut out, page_no) = paginate_body(list_lines, line_emit, opts);
     let title = last_ttl(list_lines).unwrap_or_default();
-    let rows = symbol_rows(symbols, macros, sections);
+    let rows = symbol_rows(symbols, macros, sections, asct);
     let (sym, page_no) = paginate_symbols(&rows, opts, &title, page_no);
     out.push_str(&sym);
     append_xref(&mut out, list_lines, line_emit, symbols, macros, &title, opts, page_no);
@@ -489,7 +490,9 @@ fn paginate_xref(rows: &[XrefRow], opts: &PageOpts, title: &str, mut page_no: us
     (out, page_no)
 }
 
-/// The page length from a `PLEN n` directive (lines per page), defaulting to 60.
+/// The page length from a `PLEN n` directive (lines per page). MASM's default
+/// when no `PLEN` is given is 65 (verified against the BASE_RAM oracle: gold
+/// form-feeds every 65 lines); jte sets `PLEN 60` explicitly.
 pub fn page_length(list_lines: &[ListLine]) -> usize {
     list_lines
         .iter()
@@ -502,7 +505,7 @@ pub fn page_length(list_lines: &[ListLine]) -> usize {
                 None
             }
         })
-        .unwrap_or(60)
+        .unwrap_or(65)
 }
 
 /// A page-header block (CRLF), led by a form-feed except on page 1: banner with a
@@ -559,11 +562,10 @@ const SYM_DASHES: &str = "-----------       -------   -------    -----";
 /// The Symbol Table entry rows, each without a line terminator: the section rows
 /// (in caller-supplied order) first, then program symbols and macros merged and
 /// ASCII byte-sorted (uppercase before lowercase). Macros carry no value.
-pub fn symbol_rows(symbols: &SymbolTable, macros: &[String], sections: &[(&str, u32)]) -> Vec<String> {
+pub fn symbol_rows(symbols: &SymbolTable, macros: &[String], sections: &[(&str, u32)], asct: bool) -> Vec<String> {
     let mut rows = Vec::with_capacity(sections.len() + symbols.len() + macros.len());
     for (name, vaddr) in sections {
-        let secnum = if *name == ".bss" { "0" } else { "249" };
-        rows.push(row(name, "section", secnum, *vaddr));
+        rows.push(row(name, "section", sec_num(name), *vaddr));
     }
     let mac: std::collections::HashSet<&str> = macros.iter().map(String::as_str).collect();
     let mut names: Vec<&str> = symbols.iter().map(|(n, _)| n.as_str()).chain(mac.iter().copied()).collect();
@@ -575,7 +577,20 @@ pub fn symbol_rows(symbols: &SymbolTable, macros: &[String], sections: &[(&str, 
             let (value, kind) = symbols.get_full(name).unwrap();
             let (attrib, secnum) = match kind {
                 Kind::Abs => ("abs", ""),
-                Kind::Rel => (".asct", "249"),
+                // A relocatable symbol's attrib is its containing section's name.
+                // With `ASCT` every program symbol is in `.asct` (the jte case,
+                // byte-exact); without it, it takes the content section holding its
+                // address (BASE_RAM: `.bss`). No empty section exists in that mode,
+                // so the highest section base not above the symbol is its section.
+                Kind::Rel if asct => (".asct", "249"),
+                Kind::Rel => {
+                    let nm = sections
+                        .iter()
+                        .filter(|(_, v)| *v <= value as u32)
+                        .max_by_key(|(_, v)| *v)
+                        .map_or(".bss", |(n, _)| *n);
+                    (nm, sec_num(nm))
+                }
             };
             rows.push(row(name, attrib, secnum, value as u32));
         }
@@ -583,11 +598,21 @@ pub fn symbol_rows(symbols: &SymbolTable, macros: &[String], sections: &[(&str, 
     rows
 }
 
+/// The Symbol Table's `section` column for a section name: `.bss` registers as
+/// type 0, `.asct` as 249 (the OBJ section-type registration; see masm-re-findings).
+fn sec_num(name: &str) -> &'static str {
+    if name == ".bss" {
+        "0"
+    } else {
+        "249"
+    }
+}
+
 /// Render the Symbol Table block (no surrounding page headers, LF endings) — the
 /// byte-faithful name->address table other tooling needs. `sections` is the
 /// `(name, vaddr)` of each emitted section in MASM symbol-table order.
-pub fn symbol_table(symbols: &SymbolTable, macros: &[String], sections: &[(&str, u32)]) -> String {
-    let rows = symbol_rows(symbols, macros, sections);
+pub fn symbol_table(symbols: &SymbolTable, macros: &[String], sections: &[(&str, u32)], asct: bool) -> String {
+    let rows = symbol_rows(symbols, macros, sections, asct);
     let mut out = String::new();
     out.push_str("Symbol Table:\n\n");
     out.push_str(&format!("{SYM_COLHDR}\n{SYM_DASHES}\n"));
@@ -735,7 +760,7 @@ mod tests {
         // Probe has one .asct (org $2000) + the always-present .bss; the symbol
         // table lists code/data sections first, .bss last.
         let sections = [(".asct", 0x2000u32), (".bss", 0u32)];
-        let got = super::symbol_table(&obj.symbols, &[], &sections);
+        let got = super::symbol_table(&obj.symbols, &[], &sections, obj.asct);
         let want = "\
 Symbol Table:
 
