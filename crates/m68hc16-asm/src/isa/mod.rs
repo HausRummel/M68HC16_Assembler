@@ -57,6 +57,10 @@ pub enum Mode {
     BitInd(IdxReg),
     /// Bit op on a 16-bit indexed address: `mask8`, `off16`.
     BitInd16(IdxReg),
+    /// WORD bit op (`bsetw`/`bclrw`) on a 16-bit indexed address. Unlike the byte
+    /// forms this emits `off16`, `mask16` (offset first, then a 16-bit mask) and has
+    /// no 8-bit-offset variant. Prefix `0x27` (vs `0x17` for the byte form).
+    BitIndW(IdxReg),
     /// Bit-conditional branch (extended): `mask8`, `addr16`, `rel16`.
     BitBrExt,
     /// Bit-conditional branch (8-bit indexed): `mask8`, `off8`, `rel8`.

@@ -182,6 +182,18 @@ pub fn assemble_source_in(src: &str, base_dir: Option<&Path>) -> Object {
         .iter()
         .any(|l| split_line(l).op.is_some_and(|o| o.eq_ignore_ascii_case("asct")));
 
+    // Dev hook: dump the expanded (include+macro) line stream, 1-based to match the
+    // line numbers in diagnostics (`lineno = idx + 1` in run_pass).
+    if let Ok(path) = std::env::var("HC16_LINES") {
+        use std::fmt::Write as _;
+        let mut s = String::new();
+        for (i, l) in lines.iter().enumerate() {
+            let _ = writeln!(s, "{}\t{}", i + 1, l);
+        }
+        let bytes: Vec<u8> = s.chars().map(|c| c as u8).collect();
+        let _ = std::fs::write(&path, bytes);
+    }
+
     // Phase 1: commit operand sizes in a single forward scan.
     let mut widths: HashMap<u32, bool> = HashMap::new();
     let pass1 = run_pass(&lines, &SymbolTable::new(), &def_line, Sizing::Record(&mut widths));
@@ -522,12 +534,12 @@ fn identifiers(expr: &str) -> Vec<&str> {
                     i += 1;
                 }
             }
-            b'\'' => {
+            q @ (b'\'' | b'"') => {
                 i += 1;
                 if i < b.len() {
                     i += 1;
                 }
-                if i < b.len() && b[i] == b'\'' {
+                if i < b.len() && b[i] == q {
                     i += 1;
                 }
             }
@@ -584,13 +596,13 @@ fn needs_wide(expr: &str, cur_line: u32, def_line: &HashMap<String, usize>) -> b
                     i += 1;
                 }
             }
-            // Character literal `'x'`: skip the char and an optional closing quote.
-            b'\'' => {
+            // Character literal `'x'` or `"x"`: skip the char and its closing quote.
+            q @ (b'\'' | b'"') => {
                 i += 1;
                 if i < b.len() {
                     i += 1;
                 }
-                if i < b.len() && b[i] == b'\'' {
+                if i < b.len() && b[i] == q {
                     i += 1;
                 }
             }
@@ -1355,6 +1367,27 @@ fn encode_instruction(
                 return Ok(Enc { bytes, unresolved, width: Some(wide) });
             }
             _ => return Err(format!("`{}`: expects addr,#mask or off,reg,#mask", insn.mnemonic)),
+        }
+    }
+
+    // Word bit set/clear (`bsetw`/`bclrw`): indexed `off,reg,#mask16`. The word form
+    // emits the 16-bit offset BEFORE the 16-bit mask (the byte form is mask-first)
+    // and has only a 16-bit-offset variant.
+    if mode_of(insn, |m| matches!(m, Mode::BitIndW(_))).is_some() {
+        let parts: Vec<&str> = split_top_commas(raw).iter().map(|s| s.trim()).collect();
+        match parts.as_slice() {
+            [off, reg, mask] if parse_reg(reg).is_some() => {
+                let r = parse_reg(reg).unwrap();
+                let o = eval_or_zero(off, lc, sym, &mut unresolved)?;
+                let m = eval_or_zero(mask.trim_start_matches('#'), lc, sym, &mut unresolved)?;
+                let e = mode_of(insn, |mm| matches!(mm, Mode::BitIndW(rr) if rr == r))
+                    .ok_or_else(|| format!("`{}`: no word indexed bit op for {r:?}", insn.mnemonic))?;
+                let mut bytes = e.prefix.to_vec();
+                emit_be(&mut bytes, o, 2); // 16-bit offset
+                emit_be(&mut bytes, m, 2); // 16-bit mask
+                return Ok(Enc { bytes, unresolved, width: None });
+            }
+            _ => return Err(format!("`{}`: expects off,reg,#mask", insn.mnemonic)),
         }
     }
 

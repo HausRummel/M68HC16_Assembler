@@ -339,6 +339,17 @@ pub static INSTRUCTIONS: &[InsnDef] = &[
         ModeEntry { mode: Mode::BitInd16(IdxReg::Y), prefix: &[0x19], operand_len: 3 },
         ModeEntry { mode: Mode::BitInd16(IdxReg::Z), prefix: &[0x29], operand_len: 3 },
     ] },
+    // Word bit ops: 16-bit offset + 16-bit mask (prefix 0x27); oracle-probed.
+    InsnDef { mnemonic: "bsetw", modes: &[
+        ModeEntry { mode: Mode::BitIndW(IdxReg::X), prefix: &[0x27, 0x09], operand_len: 4 },
+        ModeEntry { mode: Mode::BitIndW(IdxReg::Y), prefix: &[0x27, 0x19], operand_len: 4 },
+        ModeEntry { mode: Mode::BitIndW(IdxReg::Z), prefix: &[0x27, 0x29], operand_len: 4 },
+    ] },
+    InsnDef { mnemonic: "bclrw", modes: &[
+        ModeEntry { mode: Mode::BitIndW(IdxReg::X), prefix: &[0x27, 0x08], operand_len: 4 },
+        ModeEntry { mode: Mode::BitIndW(IdxReg::Y), prefix: &[0x27, 0x18], operand_len: 4 },
+        ModeEntry { mode: Mode::BitIndW(IdxReg::Z), prefix: &[0x27, 0x28], operand_len: 4 },
+    ] },
     InsnDef { mnemonic: "bsr", modes: &[
         ModeEntry { mode: Mode::Rel8, prefix: &[0x36], operand_len: 1 },
     ] },

@@ -134,13 +134,15 @@ impl<'a> P<'a> {
                 self.i += 1;
                 Ok((self.radix(8, |c| (b'0'..=b'7').contains(&c))?, 0))
             }
-            Some(b'\'') => {
+            // Character constant, single- or double-quoted: MASM accepts both
+            // `'A'` and `"A"` in an expression as the char's value.
+            Some(q @ (b'\'' | b'"')) => {
                 self.i += 1;
                 let Some(c) = self.peek() else {
                     return Err(EvalError::Syntax("empty char literal".into()));
                 };
                 self.i += 1;
-                if self.peek() == Some(b'\'') {
+                if self.peek() == Some(q) {
                     self.i += 1;
                 }
                 Ok((c as i64, 0))
