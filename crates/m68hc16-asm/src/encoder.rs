@@ -252,13 +252,27 @@ pub fn assemble_source_in(src: &str, base_dir: Option<&Path>) -> Object {
         symbols = obj.symbols.clone();
     }
     let mut obj = run_pass(&lines, &symbols, &def_line, Sizing::Use(&widths));
+    // Localise the instability: the lowest address whose byte still differs from the
+    // previous pass, and how many do — points at the drifting region/instruction.
+    let drift = prev.as_ref().map(|p| {
+        let pm: HashMap<u32, u8> = p.iter().copied().collect();
+        let cur: HashMap<u32, u8> = obj.data.iter().copied().collect();
+        let keys: std::collections::BTreeSet<u32> = pm.keys().chain(cur.keys()).copied().collect();
+        let diffs: Vec<u32> = keys.into_iter().filter(|a| pm.get(a) != cur.get(a)).collect();
+        (diffs.len(), diffs.first().copied())
+    });
     obj.data = fill_sections(&obj.data, &obj.org_targets);
     obj.sym_order = order_symbols(&obj.symbols, &lines, &obj.line_emit);
     obj.asct = asct;
     obj.macros = macro_names;
     obj.list_lines = list_lines;
-    obj.diagnostics
-        .push(Diagnostic::warning("assembly did not converge (possible phase error)"));
+    let msg = match drift {
+        Some((n, Some(first))) => {
+            format!("assembly did not converge: {n} bytes still drifting (lowest at 0x{first:06X})")
+        }
+        _ => "assembly did not converge (possible phase error)".to_string(),
+    };
+    obj.diagnostics.push(Diagnostic::warning(msg));
     obj
 }
 
@@ -911,7 +925,19 @@ fn run_pass(lines: &[String], sym_in: &SymbolTable, def_line: &HashMap<String, u
         if let Some(op) = op_lower.as_deref() {
             if is_if_directive(op) {
                 let pe = cond_emitting(&cond_stack);
-                let cond = pe && eval_cond(op, line.operand, lc, read_syms!()).unwrap_or(false);
+                // `ifdef`/`ifndef` test whether the symbol is defined TO THIS POINT,
+                // so they must consult the incrementally-built table even in emit
+                // passes. Using the seeded full table would flip the test between
+                // passes — the guarded definition gets skipped, the symbol drops out,
+                // the test flips back — a phase oscillation (e.g. `ifndef`-guarded
+                // version equates). Value conditionals still use the full table so
+                // forward references resolve.
+                let cond = pe
+                    && match op {
+                        "ifdef" => line.operand.map(|s| defined.contains(s.trim())).unwrap_or(false),
+                        "ifndef" => line.operand.map(|s| !defined.contains(s.trim())).unwrap_or(false),
+                        _ => eval_cond(op, line.operand, lc, read_syms!()).unwrap_or(false),
+                    };
                 cond_stack.push(CondFrame { parent_emit: pe, taken: cond, emitting: cond });
                 continue;
             }
