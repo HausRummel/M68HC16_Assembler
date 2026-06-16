@@ -29,12 +29,17 @@ const LST_TIMESTAMP: &str = "Mon Jun 15 09:39:05 ";
 pub struct AssembleRequest {
     pub input: PathBuf,
     pub output_dir: PathBuf,
+    /// Also write the raw binary image (`<stem>.bin`) next to the `.S19`. The
+    /// S-record always lands; the binary is opt-in.
+    pub emit_binary: bool,
 }
 
 /// Files produced by a successful assembler run.
 #[derive(Debug, Default, Clone)]
 pub struct AssembleOutputs {
+    pub object: Option<PathBuf>,
     pub s_record: Option<PathBuf>,
+    pub binary: Option<PathBuf>,
     pub listing: Option<PathBuf>,
     pub map: Option<PathBuf>,
 }
@@ -97,10 +102,11 @@ pub fn assemble(req: &AssembleRequest) -> AssembleResult {
     // Timestamp is left 0; it is the only non-deterministic field MASM writes.
     let obj_path = req.output_dir.join(format!("{stem}.OBJ"));
     let obj_bytes = output::coff::write_coff(&obj.data, &obj.spans, &obj.symbols, &obj.sym_order, obj.asct, 0);
-    if let Err(e) = std::fs::write(&obj_path, obj_bytes) {
-        result
+    match std::fs::write(&obj_path, obj_bytes) {
+        Ok(()) => result.outputs.object = Some(obj_path),
+        Err(e) => result
             .diagnostics
-            .push(Diagnostic::error(format!("cannot write {}: {e}", obj_path.display())));
+            .push(Diagnostic::error(format!("cannot write {}: {e}", obj_path.display()))),
     }
 
     // Paginated assembly listing (`.LST`): body + Symbol Table under MASM's page
@@ -158,6 +164,25 @@ pub fn assemble(req: &AssembleRequest) -> AssembleResult {
             .push(Diagnostic::error(format!("cannot write {}: {e}", s19_path.display()))),
     }
 
+    // Optional raw binary image (`<stem>.bin`): the same bytes as the `.S19`, laid
+    // out flat from the lowest emitted address with gaps filled 0xFF.
+    if req.emit_binary {
+        let bin_path = req.output_dir.join(format!("{stem}.bin"));
+        let (base, img) = output::bin::write_binary(&obj.data);
+        match std::fs::write(&bin_path, &img) {
+            Ok(()) => {
+                result.diagnostics.push(Diagnostic::note(format!(
+                    "binary: {} bytes at base 0x{base:06X}",
+                    img.len()
+                )));
+                result.outputs.binary = Some(bin_path);
+            }
+            Err(e) => result
+                .diagnostics
+                .push(Diagnostic::error(format!("cannot write {}: {e}", bin_path.display()))),
+        }
+    }
+
     result
 }
 
@@ -172,7 +197,9 @@ pub fn expected_output_paths(input: &Path) -> AssembleOutputs {
         p
     };
     AssembleOutputs {
+        object: Some(with_ext("OBJ")),
         s_record: Some(with_ext("S19")),
+        binary: Some(with_ext("bin")),
         listing: Some(with_ext("LST")),
         map: Some(with_ext("MAP")),
     }

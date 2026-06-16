@@ -1,5 +1,6 @@
-//! Output-file writers (S-record, COFF object, listing, map).
+//! Output-file writers (S-record, raw binary, COFF object, listing, map).
 
+pub mod bin;
 pub mod coff;
 pub mod listing;
 pub mod map;

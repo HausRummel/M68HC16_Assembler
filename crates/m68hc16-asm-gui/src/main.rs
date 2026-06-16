@@ -21,6 +21,8 @@ fn main() -> eframe::Result<()> {
 struct AssemblerApp {
     input: Option<PathBuf>,
     output_dir: Option<PathBuf>,
+    /// Also write the raw binary image (`<stem>.bin`) alongside the `.S19`.
+    emit_binary: bool,
     log: String,
 }
 
@@ -41,6 +43,7 @@ impl AssemblerApp {
     }
 
     fn run(&mut self) {
+        self.log.clear();
         let Some(input) = self.input.clone() else {
             self.log.push_str("no input file selected\n");
             return;
@@ -50,13 +53,21 @@ impl AssemblerApp {
             .clone()
             .or_else(|| input.parent().map(PathBuf::from))
             .unwrap_or_else(|| PathBuf::from("."));
-        let req = AssembleRequest { input, output_dir };
+        let req = AssembleRequest { input, output_dir, emit_binary: self.emit_binary };
         let result = assemble(&req);
         for diag in &result.diagnostics {
             self.log.push_str(&format!("{diag}\n"));
         }
-        if !result.has_errors() {
-            self.log.push_str("assemble: ok\n");
+        if result.has_errors() {
+            self.log.push_str("assemble: FAILED\n");
+            return;
+        }
+        self.log.push_str("assemble: ok\nwrote:\n");
+        let o = &result.outputs;
+        for path in [&o.object, &o.s_record, &o.binary, &o.listing] {
+            if let Some(p) = path {
+                self.log.push_str(&format!("  {}\n", p.display()));
+            }
         }
     }
 }
@@ -90,6 +101,10 @@ impl eframe::App for AssemblerApp {
                         .unwrap_or_else(|| "<input directory>".to_string()),
                 );
             });
+
+            ui.add_space(4.0);
+            ui.checkbox(&mut self.emit_binary, "Also write raw binary (.bin)")
+                .on_hover_text("Flat memory image from the lowest emitted address, gaps filled 0xFF");
 
             ui.add_space(8.0);
             if ui.button("Assemble").clicked() {

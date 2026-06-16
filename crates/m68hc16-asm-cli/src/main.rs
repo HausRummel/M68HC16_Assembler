@@ -11,10 +11,14 @@ struct Cli {
     /// Source file to assemble (`.asm`).
     input: PathBuf,
 
-    /// Directory to place `.S19`, `.LST`, and `.MAP` outputs in.
+    /// Directory to place `.OBJ`, `.S19`, `.LST` (and `.bin`) outputs in.
     /// Defaults to the input file's directory.
     #[arg(short = 'o', long = "output-dir")]
     output_dir: Option<PathBuf>,
+
+    /// Also write the raw binary image (`<stem>.bin`) alongside the `.S19`.
+    #[arg(long = "bin")]
+    bin: bool,
 }
 
 fn main() -> ExitCode {
@@ -25,7 +29,7 @@ fn main() -> ExitCode {
         .or_else(|| cli.input.parent().map(|p| p.to_path_buf()))
         .unwrap_or_else(|| PathBuf::from("."));
 
-    let req = AssembleRequest { input: cli.input, output_dir };
+    let req = AssembleRequest { input: cli.input, output_dir, emit_binary: cli.bin };
     let result = assemble(&req);
 
     for diag in &result.diagnostics {

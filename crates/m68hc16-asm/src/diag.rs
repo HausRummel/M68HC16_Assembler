@@ -4,6 +4,7 @@ use std::fmt;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Severity {
+    Note,
     Warning,
     Error,
 }
@@ -24,6 +25,10 @@ impl Diagnostic {
         Self { severity: Severity::Warning, message: message.into(), line: None }
     }
 
+    pub fn note(message: impl Into<String>) -> Self {
+        Self { severity: Severity::Note, message: message.into(), line: None }
+    }
+
     pub fn with_line(mut self, line: u32) -> Self {
         self.line = Some(line);
         self
@@ -37,6 +42,7 @@ impl Diagnostic {
 impl fmt::Display for Diagnostic {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let kind = match self.severity {
+            Severity::Note => "note",
             Severity::Warning => "warning",
             Severity::Error => "error",
         };
