@@ -78,7 +78,7 @@ fn operand_end(s: &str) -> usize {
         match b {
             b'\'' if !dq => sq = !sq,
             b'"' if !sq => dq = !dq,
-            (b' ' | b'\t' | b';') if !sq && !dq => return i,
+            b' ' | b'\t' | b';' if !sq && !dq => return i,
             _ => {}
         }
     }

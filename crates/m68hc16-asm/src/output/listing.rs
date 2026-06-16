@@ -213,7 +213,7 @@ const HEADER_WIDTH: usize = 79;
 pub fn paginate_body(list_lines: &[ListLine], line_emit: &[LineEmit], opts: &PageOpts) -> (String, usize) {
     let mut out = String::new();
     let mut asm_idx = 0usize;
-    let mut page_no = 0usize;
+    let mut page_no = 1usize; // page 1 is emitted eagerly below
     let rel_col = has_rel_column(list_lines);
     // Printed lines on the current page; set when the page-1 header is emitted below.
     let mut lines_on_page;
@@ -232,8 +232,7 @@ pub fn paginate_body(list_lines: &[ListLine], line_emit: &[LineEmit], opts: &Pag
     // starts in the top file at depth 0). Emitting it eagerly — rather than lazily
     // on the first row — means a leading `PAGE` directive ejects to page 2, leaving
     // page 1 a header-only page (matches the oracle for files that open with PAGE).
-    page_no = 1;
-    out.push_str(&page_header(1, opts.top_file, &title, opts.timestamp, Some(rel_col)));
+    out.push_str(&page_header(page_no, opts.top_file, &title, opts.timestamp, Some(rel_col)));
     lines_on_page = HEADER_LINES;
 
     for (i, ll) in list_lines.iter().enumerate() {
