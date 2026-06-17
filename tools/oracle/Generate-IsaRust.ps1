@@ -23,6 +23,7 @@ $MAP = @{
     'bit'='Mode::BitExt'; 'bitbr'='Mode::BitBrExt'; 'reg'='Mode::RegList'
     'bitix'='Mode::BitInd(IdxReg::X)'; 'bitiy'='Mode::BitInd(IdxReg::Y)'; 'bitiz'='Mode::BitInd(IdxReg::Z)'
     'bitix16'='Mode::BitInd16(IdxReg::X)'; 'bitiy16'='Mode::BitInd16(IdxReg::Y)'; 'bitiz16'='Mode::BitInd16(IdxReg::Z)'
+    'bitwx'='Mode::BitIndW(IdxReg::X)'; 'bitwy'='Mode::BitIndW(IdxReg::Y)'; 'bitwz'='Mode::BitIndW(IdxReg::Z)'
     'bitbrix'='Mode::BitBrInd(IdxReg::X)'; 'bitbriy'='Mode::BitBrInd(IdxReg::Y)'; 'bitbriz'='Mode::BitBrInd(IdxReg::Z)'
     'bitbrix16'='Mode::BitBrInd16(IdxReg::X)'; 'bitbriy16'='Mode::BitBrInd16(IdxReg::Y)'; 'bitbriz16'='Mode::BitBrInd16(IdxReg::Z)'
     'mov_mm'='Mode::MovMm'; 'mov_ix'='Mode::MovIdxExt'; 'mov_xi'='Mode::MovExtIdx'; 'mac'='Mode::Mac'
@@ -32,7 +33,7 @@ $MAP = @{
 $ORDER = @('inh','imm8','imm16','ext','ext20','ind8x','ind8y','ind8z','ind16x','ind16y','ind16z',
            'ind20x','ind20y','ind20z',
            'eindx','eindy','eindz','rel8','rel16','bit','bitix','bitiy','bitiz',
-           'bitix16','bitiy16','bitiz16',
+           'bitix16','bitiy16','bitiz16','bitwx','bitwy','bitwz',
            'bitbr','bitbrix','bitbriy','bitbriz','bitbrix16','bitbriy16','bitbriz16',
            'reg','mov_mm','mov_ix','mov_xi','mac')
 $rank = @{}; for ($i=0; $i -lt $ORDER.Count; $i++) { $rank[$ORDER[$i]] = $i }

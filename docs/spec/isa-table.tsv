@@ -89,6 +89,8 @@ adz	inh	37 ED	0	2
 aex	inh	37 4D	0	2
 aey	inh	37 5D	0	2
 aez	inh	37 6D	0	2
+ais	imm16	37 3F	2	4
+ais	imm8	3F	1	2
 aix	imm16	37 3C	2	4
 aix	imm8	3C	1	2
 aiy	imm16	37 3D	2	4
@@ -150,10 +152,22 @@ aslw	ext	27 34	2	4
 aslw	ind16x	27 04	2	4
 aslw	ind16y	27 14	2	4
 aslw	ind16z	27 24	2	4
+asr	ext	17 3D	2	4
+asr	ind16x	17 0D	2	4
+asr	ind16y	17 1D	2	4
+asr	ind16z	17 2D	2	4
+asr	ind8x	0D	1	2
+asr	ind8y	1D	1	2
+asr	ind8z	2D	1	2
 asra	inh	37 0D	0	2
 asrb	inh	37 1D	0	2
 asrd	inh	27 FD	0	2
 asre	inh	27 7D	0	2
+asrm	inh	27 BA	0	2
+asrw	ext	27 3D	2	4
+asrw	ind16x	27 0D	2	4
+asrw	ind16y	27 1D	2	4
+asrw	ind16z	27 2D	2	4
 bcc	rel8	B4	1	2
 bclr	bit	38	3	4
 bclr	bitix	17 08	2	4
@@ -162,11 +176,16 @@ bclr	bitiy	17 18	2	4
 bclr	bitiy16	18	3	4
 bclr	bitiz	17 28	2	4
 bclr	bitiz16	28	3	4
+bclrw	bitwx	27 08	4	6
+bclrw	bitwy	27 18	4	6
+bclrw	bitwz	27 28	4	6
 bcs	rel8	B5	1	2
 beq	rel8	B7	1	2
 bge	rel8	BC	1	2
+bgnd	inh	37 A6	0	2
 bgt	rel8	BE	1	2
 bhi	rel8	B2	1	2
+bhs	rel8	B4	1	2
 bita	eindx	27 49	0	2
 bita	eindy	27 59	0	2
 bita	eindz	27 69	0	2
@@ -190,6 +209,7 @@ bitb	ind8x	C9	1	2
 bitb	ind8y	D9	1	2
 bitb	ind8z	E9	1	2
 ble	rel8	BF	1	2
+blo	rel8	B5	1	2
 bls	rel8	B3	1	2
 blt	rel8	BD	1	2
 bmi	rel8	BB	1	2
@@ -203,6 +223,7 @@ brclr	bitbriy	DB	3	4
 brclr	bitbriy16	1A	5	6
 brclr	bitbriz	EB	3	4
 brclr	bitbriz16	2A	5	6
+brn	rel8	B1	1	2
 brset	bitbr	3B	5	6
 brset	bitbrix	8B	3	4
 brset	bitbrix16	0B	5	6
@@ -217,6 +238,9 @@ bset	bitiy	17 19	2	4
 bset	bitiy16	19	3	4
 bset	bitiz	17 29	2	4
 bset	bitiz16	29	3	4
+bsetw	bitwx	27 09	4	6
+bsetw	bitwy	27 19	4	6
+bsetw	bitwz	27 29	4	6
 bsr	rel8	36	1	2
 bvc	rel8	B8	1	2
 bvs	rel8	B9	1	2
@@ -275,6 +299,14 @@ cmpy	ind16z	17 6D	2	4
 cmpy	ind8x	4D	1	2
 cmpy	ind8y	5D	1	2
 cmpy	ind8z	6D	1	2
+cmpz	ext	17 7E	2	4
+cmpz	imm16	37 7E	2	4
+cmpz	ind16x	17 4E	2	4
+cmpz	ind16y	17 5E	2	4
+cmpz	ind16z	17 6E	2	4
+cmpz	ind8x	4E	1	2
+cmpz	ind8y	5E	1	2
+cmpz	ind8z	6E	1	2
 com	ext	17 30	2	4
 com	ind16x	17 00	2	4
 com	ind16y	17 10	2	4
@@ -286,6 +318,10 @@ coma	inh	37 00	0	2
 comb	inh	37 10	0	2
 comd	inh	27 F0	0	2
 come	inh	27 70	0	2
+comw	ext	27 30	2	4
+comw	ind16x	27 00	2	4
+comw	ind16y	27 10	2	4
+comw	ind16z	27 20	2	4
 cpd	eindx	27 88	0	2
 cpd	eindy	27 98	0	2
 cpd	eindz	27 A8	0	2
@@ -302,6 +338,14 @@ cpe	imm16	37 38	2	4
 cpe	ind16x	37 48	2	4
 cpe	ind16y	37 58	2	4
 cpe	ind16z	37 68	2	4
+cps	ext	17 7F	2	4
+cps	imm16	37 7F	2	4
+cps	ind16x	17 4F	2	4
+cps	ind16y	17 5F	2	4
+cps	ind16z	17 6F	2	4
+cps	ind8x	4F	1	2
+cps	ind8y	5F	1	2
+cps	ind8z	6F	1	2
 cpx	ext	17 7C	2	4
 cpx	imm16	37 7C	2	4
 cpx	ind16x	17 4C	2	4
@@ -318,6 +362,15 @@ cpy	ind16z	17 6D	2	4
 cpy	ind8x	4D	1	2
 cpy	ind8y	5D	1	2
 cpy	ind8z	6D	1	2
+cpz	ext	17 7E	2	4
+cpz	imm16	37 7E	2	4
+cpz	ind16x	17 4E	2	4
+cpz	ind16y	17 5E	2	4
+cpz	ind16z	17 6E	2	4
+cpz	ind8x	4E	1	2
+cpz	ind8y	5E	1	2
+cpz	ind8z	6E	1	2
+daa	inh	37 21	0	2
 dec	ext	17 31	2	4
 dec	ind16x	17 01	2	4
 dec	ind16y	17 11	2	4
@@ -331,7 +384,9 @@ decw	ext	27 31	2	4
 decw	ind16x	27 01	2	4
 decw	ind16y	27 11	2	4
 decw	ind16z	27 21	2	4
+des	inh	3F FF	0	2
 dex	inh	3C FF	0	2
+dey	inh	3D FF	0	2
 ediv	inh	37 28	0	2
 edivs	inh	37 29	0	2
 emul	inh	37 25	0	2
@@ -390,7 +445,9 @@ incw	ext	27 33	2	4
 incw	ind16x	27 03	2	4
 incw	ind16y	27 13	2	4
 incw	ind16z	27 23	2	4
+ins	inh	3F 01	0	2
 inx	inh	3C 01	0	2
+iny	inh	3D 01	0	2
 jmp	ext20	7A	3	4
 jmp	ind20x	4B	3	4
 jmp	ind20y	5B	3	4
@@ -402,17 +459,24 @@ jsr	ind20z	A9	3	4
 lbcc	rel16	37 84	2	4
 lbcs	rel16	37 85	2	4
 lbeq	rel16	37 87	2	4
+lbev	rel16	37 91	2	4
 lbge	rel16	37 8C	2	4
 lbgt	rel16	37 8E	2	4
 lbhi	rel16	37 82	2	4
+lbhs	rel16	37 84	2	4
 lble	rel16	37 8F	2	4
+lblo	rel16	37 85	2	4
 lbls	rel16	37 83	2	4
 lblt	rel16	37 8D	2	4
 lbmi	rel16	37 8B	2	4
+lbmv	rel16	37 90	2	4
 lbne	rel16	37 86	2	4
 lbpl	rel16	37 8A	2	4
 lbra	rel16	37 80	2	4
+lbrn	rel16	37 81	2	4
 lbsr	rel16	27 F9	2	4
+lbvc	rel16	37 88	2	4
+lbvs	rel16	37 89	2	4
 ldaa	eindx	27 45	0	2
 ldaa	eindy	27 55	0	2
 ldaa	eindz	27 65	0	2
@@ -485,10 +549,23 @@ ldz	ind16z	17 EE	2	4
 ldz	ind8x	CE	1	2
 ldz	ind8y	DE	1	2
 ldz	ind8z	EE	1	2
+lpstop	inh	27 F1	0	2
+lsl	ext	17 34	2	4
+lsl	ind16x	17 04	2	4
+lsl	ind16y	17 14	2	4
+lsl	ind16z	17 24	2	4
+lsl	ind8x	04	1	2
+lsl	ind8y	14	1	2
+lsl	ind8z	24	1	2
 lsla	inh	37 04	0	2
 lslb	inh	37 14	0	2
 lsld	inh	27 F4	0	2
 lsle	inh	27 74	0	2
+lslm	inh	27 B6	0	2
+lslw	ext	27 34	2	4
+lslw	ind16x	27 04	2	4
+lslw	ind16y	27 14	2	4
+lslw	ind16z	27 24	2	4
 lsr	ext	17 3F	2	4
 lsr	ind16x	17 0F	2	4
 lsr	ind16y	17 1F	2	4
@@ -504,16 +581,28 @@ lsrw	ext	27 3F	2	4
 lsrw	ind16x	27 0F	2	4
 lsrw	ind16y	27 1F	2	4
 lsrw	ind16z	27 2F	2	4
+mac	mac	7B	1	2
 movb	mov_ix	30	3	4
 movb	mov_mm	37 FE	4	6
 movb	mov_xi	32	3	4
 movw	mov_ix	31	3	4
 movw	mov_mm	37 FF	4	6
 mul	inh	37 24	0	2
+neg	ext	17 32	2	4
+neg	ind16x	17 02	2	4
+neg	ind16y	17 12	2	4
+neg	ind16z	17 22	2	4
+neg	ind8x	02	1	2
+neg	ind8y	12	1	2
+neg	ind8z	22	1	2
 nega	inh	37 02	0	2
 negb	inh	37 12	0	2
 negd	inh	27 F2	0	2
 nege	inh	27 72	0	2
+negw	ext	27 32	2	4
+negw	ind16x	27 02	2	4
+negw	ind16y	27 12	2	4
+negw	ind16z	27 22	2	4
 nop	inh	27 4C	0	2
 oraa	eindx	27 47	0	2
 oraa	eindy	27 57	0	2
@@ -557,16 +646,38 @@ orp	imm16	37 3B	2	4
 psha	inh	37 08	0	2
 pshb	inh	37 18	0	2
 pshm	reg	34	1	2
+pshmac	inh	27 B8	0	2
+pshx	inh	34 04	0	2
 pshy	inh	34 08	0	2
 pula	inh	37 09	0	2
 pulb	inh	37 19	0	2
 pulm	reg	35	1	2
+pulmac	inh	27 B9	0	2
+pulx	inh	35 10	0	2
 puly	inh	35 08	0	2
 rmac	mac	FB	1	2
+rol	ext	17 3C	2	4
+rol	ind16x	17 0C	2	4
+rol	ind16y	17 1C	2	4
+rol	ind16z	17 2C	2	4
+rol	ind8x	0C	1	2
+rol	ind8y	1C	1	2
+rol	ind8z	2C	1	2
 rola	inh	37 0C	0	2
 rolb	inh	37 1C	0	2
 rold	inh	27 FC	0	2
 role	inh	27 7C	0	2
+rolw	ext	27 3C	2	4
+rolw	ind16x	27 0C	2	4
+rolw	ind16y	27 1C	2	4
+rolw	ind16z	27 2C	2	4
+ror	ext	17 3E	2	4
+ror	ind16x	17 0E	2	4
+ror	ind16y	17 1E	2	4
+ror	ind16z	17 2E	2	4
+ror	ind8x	0E	1	2
+ror	ind8y	1E	1	2
+ror	ind8z	2E	1	2
 rora	inh	37 0E	0	2
 rorb	inh	37 1E	0	2
 rord	inh	27 FE	0	2
@@ -589,6 +700,17 @@ sbca	ind16z	17 62	2	4
 sbca	ind8x	42	1	2
 sbca	ind8y	52	1	2
 sbca	ind8z	62	1	2
+sbcb	eindx	27 C2	0	2
+sbcb	eindy	27 D2	0	2
+sbcb	eindz	27 E2	0	2
+sbcb	ext	17 F2	2	4
+sbcb	imm8	F2	1	2
+sbcb	ind16x	17 C2	2	4
+sbcb	ind16y	17 D2	2	4
+sbcb	ind16z	17 E2	2	4
+sbcb	ind8x	C2	1	2
+sbcb	ind8y	D2	1	2
+sbcb	ind8z	E2	1	2
 sbcd	eindx	27 82	0	2
 sbcd	eindy	27 92	0	2
 sbcd	eindz	27 A2	0	2
@@ -640,6 +762,15 @@ ste	ext	37 7A	2	4
 ste	ind16x	37 4A	2	4
 ste	ind16y	37 5A	2	4
 ste	ind16z	37 6A	2	4
+sted	ext	27 73	2	4
+stop	inh	27 F1	0	2
+sts	ext	17 BF	2	4
+sts	ind16x	17 8F	2	4
+sts	ind16y	17 9F	2	4
+sts	ind16z	17 AF	2	4
+sts	ind8x	8F	1	2
+sts	ind8y	9F	1	2
+sts	ind8z	AF	1	2
 stx	ext	17 BC	2	4
 stx	ind16x	17 8C	2	4
 stx	ind16y	17 9C	2	4
@@ -654,6 +785,13 @@ sty	ind16z	17 AD	2	4
 sty	ind8x	8D	1	2
 sty	ind8y	9D	1	2
 sty	ind8z	AD	1	2
+stz	ext	17 BE	2	4
+stz	ind16x	17 8E	2	4
+stz	ind16y	17 9E	2	4
+stz	ind16z	17 AE	2	4
+stz	ind8x	8E	1	2
+stz	ind8y	9E	1	2
+stz	ind8z	AE	1	2
 suba	eindx	27 40	0	2
 suba	eindy	27 50	0	2
 suba	eindz	27 60	0	2
@@ -692,8 +830,10 @@ sube	imm16	37 30	2	4
 sube	ind16x	37 40	2	4
 sube	ind16y	37 50	2	4
 sube	ind16z	37 60	2	4
+swi	inh	37 20	0	2
 sxt	inh	27 F8	0	2
 tab	inh	37 17	0	2
+tap	inh	37 FD	0	2
 tba	inh	37 07	0	2
 tbek	inh	27 FA	0	2
 tbsk	inh	37 9F	0	2
@@ -702,11 +842,17 @@ tbyk	inh	37 9D	0	2
 tbzk	inh	37 9E	0	2
 tde	inh	27 7B	0	2
 tdmsk	inh	37 2F	0	2
+tdp	inh	37 2D	0	2
 ted	inh	27 FB	0	2
+tedm	inh	27 B1	0	2
+tekb	inh	27 BB	0	2
 tem	inh	27 B2	0	2
 tmer	inh	27 B4	0	2
 tmet	inh	27 B5	0	2
+tmxed	inh	27 B3	0	2
 tpa	inh	37 FC	0	2
+tpd	inh	37 2C	0	2
+tskb	inh	37 AF	0	2
 tst	ext	17 36	2	4
 tst	ind16x	17 06	2	4
 tst	ind16y	17 16	2	4
@@ -722,11 +868,22 @@ tstw	ext	27 36	2	4
 tstw	ind16x	27 06	2	4
 tstw	ind16y	27 16	2	4
 tstw	ind16z	27 26	2	4
+tsx	inh	27 4F	0	2
 tsy	inh	27 5F	0	2
+tsz	inh	27 6F	0	2
 txkb	inh	37 AC	0	2
+txs	inh	37 4E	0	2
 txy	inh	27 5C	0	2
 txz	inh	27 6C	0	2
+tykb	inh	37 AD	0	2
+tys	inh	37 5E	0	2
 tyx	inh	27 4D	0	2
+tyz	inh	27 6D	0	2
+tzkb	inh	37 AE	0	2
+tzs	inh	37 6E	0	2
+tzx	inh	27 4E	0	2
+tzy	inh	27 5E	0	2
+wai	inh	27 F3	0	2
 xgab	inh	37 1A	0	2
 xgde	inh	27 7A	0	2
 xgdx	inh	37 CC	0	2

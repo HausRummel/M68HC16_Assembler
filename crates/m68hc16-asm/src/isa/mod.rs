@@ -149,6 +149,34 @@ mod tests {
     }
 
     #[test]
+    fn post_corpus_mnemonics_present_and_correct() {
+        // Instructions absent from our original corpus but valid HC16 — added
+        // after a different source release used them (TSX/PSHX/NEG and siblings).
+        // All bytes captured from the real MASM via the oracle.
+        for m in ["tsx", "tsz", "txs", "tys", "tzs", "pshx", "pulx", "neg", "negw"] {
+            assert!(lookup(m).is_some(), "missing mnemonic `{m}`");
+        }
+        // Transfers: TSX/TSZ live on page 0x27, but TXS/TYS/TZS live on 0x37 —
+        // a structural asymmetry that must come from the oracle, not inference.
+        assert_eq!(prefix_of("tsx", Mode::Inherent), &[0x27, 0x4F]);
+        assert_eq!(prefix_of("tsz", Mode::Inherent), &[0x27, 0x6F]);
+        assert_eq!(prefix_of("txs", Mode::Inherent), &[0x37, 0x4E]);
+        assert_eq!(prefix_of("tys", Mode::Inherent), &[0x37, 0x5E]);
+        assert_eq!(prefix_of("tzs", Mode::Inherent), &[0x37, 0x6E]);
+        // PSHX/PULX expand to PSHM/PULM masks — and the masks differ (0x04 vs 0x10)
+        // because PSHM/PULM use mirrored bit orders so a push/pull pair round-trips.
+        assert_eq!(prefix_of("pshx", Mode::Inherent), &[0x34, 0x04]);
+        assert_eq!(prefix_of("pulx", Mode::Inherent), &[0x35, 0x10]);
+        // NEG memory read-modify-write: byte form (0x17/bare) and word form (0x27).
+        assert_eq!(prefix_of("neg", Mode::Ext), &[0x17, 0x32]);
+        assert_eq!(prefix_of("neg", Mode::Ind8(IdxReg::X)), &[0x02]);
+        assert_eq!(prefix_of("neg", Mode::Ind16(IdxReg::Z)), &[0x17, 0x22]);
+        assert_eq!(prefix_of("negw", Mode::Ext), &[0x27, 0x32]);
+        // mac (single multiply-accumulate) shares rmac's packed Mac mode.
+        assert_eq!(prefix_of("mac", Mode::Mac), &[0x7B]);
+    }
+
+    #[test]
     fn operand_len_consistent_with_mode() {
         for d in INSTRUCTIONS {
             for m in d.modes {

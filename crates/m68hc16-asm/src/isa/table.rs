@@ -135,6 +135,10 @@ pub static INSTRUCTIONS: &[InsnDef] = &[
     InsnDef { mnemonic: "aez", modes: &[
         ModeEntry { mode: Mode::Inherent, prefix: &[0x37, 0x6D], operand_len: 0 },
     ] },
+    InsnDef { mnemonic: "ais", modes: &[
+        ModeEntry { mode: Mode::Imm8, prefix: &[0x3F], operand_len: 1 },
+        ModeEntry { mode: Mode::Imm16, prefix: &[0x37, 0x3F], operand_len: 2 },
+    ] },
     InsnDef { mnemonic: "aix", modes: &[
         ModeEntry { mode: Mode::Imm8, prefix: &[0x3C], operand_len: 1 },
         ModeEntry { mode: Mode::Imm16, prefix: &[0x37, 0x3C], operand_len: 2 },
@@ -226,6 +230,15 @@ pub static INSTRUCTIONS: &[InsnDef] = &[
         ModeEntry { mode: Mode::Ind16(IdxReg::Y), prefix: &[0x27, 0x14], operand_len: 2 },
         ModeEntry { mode: Mode::Ind16(IdxReg::Z), prefix: &[0x27, 0x24], operand_len: 2 },
     ] },
+    InsnDef { mnemonic: "asr", modes: &[
+        ModeEntry { mode: Mode::Ext, prefix: &[0x17, 0x3D], operand_len: 2 },
+        ModeEntry { mode: Mode::Ind8(IdxReg::X), prefix: &[0x0D], operand_len: 1 },
+        ModeEntry { mode: Mode::Ind8(IdxReg::Y), prefix: &[0x1D], operand_len: 1 },
+        ModeEntry { mode: Mode::Ind8(IdxReg::Z), prefix: &[0x2D], operand_len: 1 },
+        ModeEntry { mode: Mode::Ind16(IdxReg::X), prefix: &[0x17, 0x0D], operand_len: 2 },
+        ModeEntry { mode: Mode::Ind16(IdxReg::Y), prefix: &[0x17, 0x1D], operand_len: 2 },
+        ModeEntry { mode: Mode::Ind16(IdxReg::Z), prefix: &[0x17, 0x2D], operand_len: 2 },
+    ] },
     InsnDef { mnemonic: "asra", modes: &[
         ModeEntry { mode: Mode::Inherent, prefix: &[0x37, 0x0D], operand_len: 0 },
     ] },
@@ -237,6 +250,15 @@ pub static INSTRUCTIONS: &[InsnDef] = &[
     ] },
     InsnDef { mnemonic: "asre", modes: &[
         ModeEntry { mode: Mode::Inherent, prefix: &[0x27, 0x7D], operand_len: 0 },
+    ] },
+    InsnDef { mnemonic: "asrm", modes: &[
+        ModeEntry { mode: Mode::Inherent, prefix: &[0x27, 0xBA], operand_len: 0 },
+    ] },
+    InsnDef { mnemonic: "asrw", modes: &[
+        ModeEntry { mode: Mode::Ext, prefix: &[0x27, 0x3D], operand_len: 2 },
+        ModeEntry { mode: Mode::Ind16(IdxReg::X), prefix: &[0x27, 0x0D], operand_len: 2 },
+        ModeEntry { mode: Mode::Ind16(IdxReg::Y), prefix: &[0x27, 0x1D], operand_len: 2 },
+        ModeEntry { mode: Mode::Ind16(IdxReg::Z), prefix: &[0x27, 0x2D], operand_len: 2 },
     ] },
     InsnDef { mnemonic: "bcc", modes: &[
         ModeEntry { mode: Mode::Rel8, prefix: &[0xB4], operand_len: 1 },
@@ -250,6 +272,11 @@ pub static INSTRUCTIONS: &[InsnDef] = &[
         ModeEntry { mode: Mode::BitInd16(IdxReg::Y), prefix: &[0x18], operand_len: 3 },
         ModeEntry { mode: Mode::BitInd16(IdxReg::Z), prefix: &[0x28], operand_len: 3 },
     ] },
+    InsnDef { mnemonic: "bclrw", modes: &[
+        ModeEntry { mode: Mode::BitIndW(IdxReg::X), prefix: &[0x27, 0x08], operand_len: 4 },
+        ModeEntry { mode: Mode::BitIndW(IdxReg::Y), prefix: &[0x27, 0x18], operand_len: 4 },
+        ModeEntry { mode: Mode::BitIndW(IdxReg::Z), prefix: &[0x27, 0x28], operand_len: 4 },
+    ] },
     InsnDef { mnemonic: "bcs", modes: &[
         ModeEntry { mode: Mode::Rel8, prefix: &[0xB5], operand_len: 1 },
     ] },
@@ -259,11 +286,17 @@ pub static INSTRUCTIONS: &[InsnDef] = &[
     InsnDef { mnemonic: "bge", modes: &[
         ModeEntry { mode: Mode::Rel8, prefix: &[0xBC], operand_len: 1 },
     ] },
+    InsnDef { mnemonic: "bgnd", modes: &[
+        ModeEntry { mode: Mode::Inherent, prefix: &[0x37, 0xA6], operand_len: 0 },
+    ] },
     InsnDef { mnemonic: "bgt", modes: &[
         ModeEntry { mode: Mode::Rel8, prefix: &[0xBE], operand_len: 1 },
     ] },
     InsnDef { mnemonic: "bhi", modes: &[
         ModeEntry { mode: Mode::Rel8, prefix: &[0xB2], operand_len: 1 },
+    ] },
+    InsnDef { mnemonic: "bhs", modes: &[
+        ModeEntry { mode: Mode::Rel8, prefix: &[0xB4], operand_len: 1 },
     ] },
     InsnDef { mnemonic: "bita", modes: &[
         ModeEntry { mode: Mode::Imm8, prefix: &[0x79], operand_len: 1 },
@@ -294,6 +327,9 @@ pub static INSTRUCTIONS: &[InsnDef] = &[
     InsnDef { mnemonic: "ble", modes: &[
         ModeEntry { mode: Mode::Rel8, prefix: &[0xBF], operand_len: 1 },
     ] },
+    InsnDef { mnemonic: "blo", modes: &[
+        ModeEntry { mode: Mode::Rel8, prefix: &[0xB5], operand_len: 1 },
+    ] },
     InsnDef { mnemonic: "bls", modes: &[
         ModeEntry { mode: Mode::Rel8, prefix: &[0xB3], operand_len: 1 },
     ] },
@@ -321,6 +357,9 @@ pub static INSTRUCTIONS: &[InsnDef] = &[
         ModeEntry { mode: Mode::BitBrInd16(IdxReg::Y), prefix: &[0x1A], operand_len: 5 },
         ModeEntry { mode: Mode::BitBrInd16(IdxReg::Z), prefix: &[0x2A], operand_len: 5 },
     ] },
+    InsnDef { mnemonic: "brn", modes: &[
+        ModeEntry { mode: Mode::Rel8, prefix: &[0xB1], operand_len: 1 },
+    ] },
     InsnDef { mnemonic: "brset", modes: &[
         ModeEntry { mode: Mode::BitBrExt, prefix: &[0x3B], operand_len: 5 },
         ModeEntry { mode: Mode::BitBrInd(IdxReg::X), prefix: &[0x8B], operand_len: 3 },
@@ -339,16 +378,10 @@ pub static INSTRUCTIONS: &[InsnDef] = &[
         ModeEntry { mode: Mode::BitInd16(IdxReg::Y), prefix: &[0x19], operand_len: 3 },
         ModeEntry { mode: Mode::BitInd16(IdxReg::Z), prefix: &[0x29], operand_len: 3 },
     ] },
-    // Word bit ops: 16-bit offset + 16-bit mask (prefix 0x27); oracle-probed.
     InsnDef { mnemonic: "bsetw", modes: &[
         ModeEntry { mode: Mode::BitIndW(IdxReg::X), prefix: &[0x27, 0x09], operand_len: 4 },
         ModeEntry { mode: Mode::BitIndW(IdxReg::Y), prefix: &[0x27, 0x19], operand_len: 4 },
         ModeEntry { mode: Mode::BitIndW(IdxReg::Z), prefix: &[0x27, 0x29], operand_len: 4 },
-    ] },
-    InsnDef { mnemonic: "bclrw", modes: &[
-        ModeEntry { mode: Mode::BitIndW(IdxReg::X), prefix: &[0x27, 0x08], operand_len: 4 },
-        ModeEntry { mode: Mode::BitIndW(IdxReg::Y), prefix: &[0x27, 0x18], operand_len: 4 },
-        ModeEntry { mode: Mode::BitIndW(IdxReg::Z), prefix: &[0x27, 0x28], operand_len: 4 },
     ] },
     InsnDef { mnemonic: "bsr", modes: &[
         ModeEntry { mode: Mode::Rel8, prefix: &[0x36], operand_len: 1 },
@@ -438,6 +471,16 @@ pub static INSTRUCTIONS: &[InsnDef] = &[
         ModeEntry { mode: Mode::Ind16(IdxReg::Y), prefix: &[0x17, 0x5D], operand_len: 2 },
         ModeEntry { mode: Mode::Ind16(IdxReg::Z), prefix: &[0x17, 0x6D], operand_len: 2 },
     ] },
+    InsnDef { mnemonic: "cmpz", modes: &[
+        ModeEntry { mode: Mode::Imm16, prefix: &[0x37, 0x7E], operand_len: 2 },
+        ModeEntry { mode: Mode::Ext, prefix: &[0x17, 0x7E], operand_len: 2 },
+        ModeEntry { mode: Mode::Ind8(IdxReg::X), prefix: &[0x4E], operand_len: 1 },
+        ModeEntry { mode: Mode::Ind8(IdxReg::Y), prefix: &[0x5E], operand_len: 1 },
+        ModeEntry { mode: Mode::Ind8(IdxReg::Z), prefix: &[0x6E], operand_len: 1 },
+        ModeEntry { mode: Mode::Ind16(IdxReg::X), prefix: &[0x17, 0x4E], operand_len: 2 },
+        ModeEntry { mode: Mode::Ind16(IdxReg::Y), prefix: &[0x17, 0x5E], operand_len: 2 },
+        ModeEntry { mode: Mode::Ind16(IdxReg::Z), prefix: &[0x17, 0x6E], operand_len: 2 },
+    ] },
     InsnDef { mnemonic: "com", modes: &[
         ModeEntry { mode: Mode::Ext, prefix: &[0x17, 0x30], operand_len: 2 },
         ModeEntry { mode: Mode::Ind8(IdxReg::X), prefix: &[0x00], operand_len: 1 },
@@ -459,6 +502,12 @@ pub static INSTRUCTIONS: &[InsnDef] = &[
     InsnDef { mnemonic: "come", modes: &[
         ModeEntry { mode: Mode::Inherent, prefix: &[0x27, 0x70], operand_len: 0 },
     ] },
+    InsnDef { mnemonic: "comw", modes: &[
+        ModeEntry { mode: Mode::Ext, prefix: &[0x27, 0x30], operand_len: 2 },
+        ModeEntry { mode: Mode::Ind16(IdxReg::X), prefix: &[0x27, 0x00], operand_len: 2 },
+        ModeEntry { mode: Mode::Ind16(IdxReg::Y), prefix: &[0x27, 0x10], operand_len: 2 },
+        ModeEntry { mode: Mode::Ind16(IdxReg::Z), prefix: &[0x27, 0x20], operand_len: 2 },
+    ] },
     InsnDef { mnemonic: "cpd", modes: &[
         ModeEntry { mode: Mode::Imm16, prefix: &[0x37, 0xB8], operand_len: 2 },
         ModeEntry { mode: Mode::Ext, prefix: &[0x37, 0xF8], operand_len: 2 },
@@ -479,6 +528,16 @@ pub static INSTRUCTIONS: &[InsnDef] = &[
         ModeEntry { mode: Mode::Ind16(IdxReg::Y), prefix: &[0x37, 0x58], operand_len: 2 },
         ModeEntry { mode: Mode::Ind16(IdxReg::Z), prefix: &[0x37, 0x68], operand_len: 2 },
     ] },
+    InsnDef { mnemonic: "cps", modes: &[
+        ModeEntry { mode: Mode::Imm16, prefix: &[0x37, 0x7F], operand_len: 2 },
+        ModeEntry { mode: Mode::Ext, prefix: &[0x17, 0x7F], operand_len: 2 },
+        ModeEntry { mode: Mode::Ind8(IdxReg::X), prefix: &[0x4F], operand_len: 1 },
+        ModeEntry { mode: Mode::Ind8(IdxReg::Y), prefix: &[0x5F], operand_len: 1 },
+        ModeEntry { mode: Mode::Ind8(IdxReg::Z), prefix: &[0x6F], operand_len: 1 },
+        ModeEntry { mode: Mode::Ind16(IdxReg::X), prefix: &[0x17, 0x4F], operand_len: 2 },
+        ModeEntry { mode: Mode::Ind16(IdxReg::Y), prefix: &[0x17, 0x5F], operand_len: 2 },
+        ModeEntry { mode: Mode::Ind16(IdxReg::Z), prefix: &[0x17, 0x6F], operand_len: 2 },
+    ] },
     InsnDef { mnemonic: "cpx", modes: &[
         ModeEntry { mode: Mode::Imm16, prefix: &[0x37, 0x7C], operand_len: 2 },
         ModeEntry { mode: Mode::Ext, prefix: &[0x17, 0x7C], operand_len: 2 },
@@ -498,6 +557,19 @@ pub static INSTRUCTIONS: &[InsnDef] = &[
         ModeEntry { mode: Mode::Ind16(IdxReg::X), prefix: &[0x17, 0x4D], operand_len: 2 },
         ModeEntry { mode: Mode::Ind16(IdxReg::Y), prefix: &[0x17, 0x5D], operand_len: 2 },
         ModeEntry { mode: Mode::Ind16(IdxReg::Z), prefix: &[0x17, 0x6D], operand_len: 2 },
+    ] },
+    InsnDef { mnemonic: "cpz", modes: &[
+        ModeEntry { mode: Mode::Imm16, prefix: &[0x37, 0x7E], operand_len: 2 },
+        ModeEntry { mode: Mode::Ext, prefix: &[0x17, 0x7E], operand_len: 2 },
+        ModeEntry { mode: Mode::Ind8(IdxReg::X), prefix: &[0x4E], operand_len: 1 },
+        ModeEntry { mode: Mode::Ind8(IdxReg::Y), prefix: &[0x5E], operand_len: 1 },
+        ModeEntry { mode: Mode::Ind8(IdxReg::Z), prefix: &[0x6E], operand_len: 1 },
+        ModeEntry { mode: Mode::Ind16(IdxReg::X), prefix: &[0x17, 0x4E], operand_len: 2 },
+        ModeEntry { mode: Mode::Ind16(IdxReg::Y), prefix: &[0x17, 0x5E], operand_len: 2 },
+        ModeEntry { mode: Mode::Ind16(IdxReg::Z), prefix: &[0x17, 0x6E], operand_len: 2 },
+    ] },
+    InsnDef { mnemonic: "daa", modes: &[
+        ModeEntry { mode: Mode::Inherent, prefix: &[0x37, 0x21], operand_len: 0 },
     ] },
     InsnDef { mnemonic: "dec", modes: &[
         ModeEntry { mode: Mode::Ext, prefix: &[0x17, 0x31], operand_len: 2 },
@@ -520,8 +592,14 @@ pub static INSTRUCTIONS: &[InsnDef] = &[
         ModeEntry { mode: Mode::Ind16(IdxReg::Y), prefix: &[0x27, 0x11], operand_len: 2 },
         ModeEntry { mode: Mode::Ind16(IdxReg::Z), prefix: &[0x27, 0x21], operand_len: 2 },
     ] },
+    InsnDef { mnemonic: "des", modes: &[
+        ModeEntry { mode: Mode::Inherent, prefix: &[0x3F, 0xFF], operand_len: 0 },
+    ] },
     InsnDef { mnemonic: "dex", modes: &[
         ModeEntry { mode: Mode::Inherent, prefix: &[0x3C, 0xFF], operand_len: 0 },
+    ] },
+    InsnDef { mnemonic: "dey", modes: &[
+        ModeEntry { mode: Mode::Inherent, prefix: &[0x3D, 0xFF], operand_len: 0 },
     ] },
     InsnDef { mnemonic: "ediv", modes: &[
         ModeEntry { mode: Mode::Inherent, prefix: &[0x37, 0x28], operand_len: 0 },
@@ -611,8 +689,14 @@ pub static INSTRUCTIONS: &[InsnDef] = &[
         ModeEntry { mode: Mode::Ind16(IdxReg::Y), prefix: &[0x27, 0x13], operand_len: 2 },
         ModeEntry { mode: Mode::Ind16(IdxReg::Z), prefix: &[0x27, 0x23], operand_len: 2 },
     ] },
+    InsnDef { mnemonic: "ins", modes: &[
+        ModeEntry { mode: Mode::Inherent, prefix: &[0x3F, 0x01], operand_len: 0 },
+    ] },
     InsnDef { mnemonic: "inx", modes: &[
         ModeEntry { mode: Mode::Inherent, prefix: &[0x3C, 0x01], operand_len: 0 },
+    ] },
+    InsnDef { mnemonic: "iny", modes: &[
+        ModeEntry { mode: Mode::Inherent, prefix: &[0x3D, 0x01], operand_len: 0 },
     ] },
     InsnDef { mnemonic: "jmp", modes: &[
         ModeEntry { mode: Mode::Ext20, prefix: &[0x7A], operand_len: 3 },
@@ -635,6 +719,9 @@ pub static INSTRUCTIONS: &[InsnDef] = &[
     InsnDef { mnemonic: "lbeq", modes: &[
         ModeEntry { mode: Mode::Rel16, prefix: &[0x37, 0x87], operand_len: 2 },
     ] },
+    InsnDef { mnemonic: "lbev", modes: &[
+        ModeEntry { mode: Mode::Rel16, prefix: &[0x37, 0x91], operand_len: 2 },
+    ] },
     InsnDef { mnemonic: "lbge", modes: &[
         ModeEntry { mode: Mode::Rel16, prefix: &[0x37, 0x8C], operand_len: 2 },
     ] },
@@ -644,8 +731,14 @@ pub static INSTRUCTIONS: &[InsnDef] = &[
     InsnDef { mnemonic: "lbhi", modes: &[
         ModeEntry { mode: Mode::Rel16, prefix: &[0x37, 0x82], operand_len: 2 },
     ] },
+    InsnDef { mnemonic: "lbhs", modes: &[
+        ModeEntry { mode: Mode::Rel16, prefix: &[0x37, 0x84], operand_len: 2 },
+    ] },
     InsnDef { mnemonic: "lble", modes: &[
         ModeEntry { mode: Mode::Rel16, prefix: &[0x37, 0x8F], operand_len: 2 },
+    ] },
+    InsnDef { mnemonic: "lblo", modes: &[
+        ModeEntry { mode: Mode::Rel16, prefix: &[0x37, 0x85], operand_len: 2 },
     ] },
     InsnDef { mnemonic: "lbls", modes: &[
         ModeEntry { mode: Mode::Rel16, prefix: &[0x37, 0x83], operand_len: 2 },
@@ -656,6 +749,9 @@ pub static INSTRUCTIONS: &[InsnDef] = &[
     InsnDef { mnemonic: "lbmi", modes: &[
         ModeEntry { mode: Mode::Rel16, prefix: &[0x37, 0x8B], operand_len: 2 },
     ] },
+    InsnDef { mnemonic: "lbmv", modes: &[
+        ModeEntry { mode: Mode::Rel16, prefix: &[0x37, 0x90], operand_len: 2 },
+    ] },
     InsnDef { mnemonic: "lbne", modes: &[
         ModeEntry { mode: Mode::Rel16, prefix: &[0x37, 0x86], operand_len: 2 },
     ] },
@@ -665,8 +761,17 @@ pub static INSTRUCTIONS: &[InsnDef] = &[
     InsnDef { mnemonic: "lbra", modes: &[
         ModeEntry { mode: Mode::Rel16, prefix: &[0x37, 0x80], operand_len: 2 },
     ] },
+    InsnDef { mnemonic: "lbrn", modes: &[
+        ModeEntry { mode: Mode::Rel16, prefix: &[0x37, 0x81], operand_len: 2 },
+    ] },
     InsnDef { mnemonic: "lbsr", modes: &[
         ModeEntry { mode: Mode::Rel16, prefix: &[0x27, 0xF9], operand_len: 2 },
+    ] },
+    InsnDef { mnemonic: "lbvc", modes: &[
+        ModeEntry { mode: Mode::Rel16, prefix: &[0x37, 0x88], operand_len: 2 },
+    ] },
+    InsnDef { mnemonic: "lbvs", modes: &[
+        ModeEntry { mode: Mode::Rel16, prefix: &[0x37, 0x89], operand_len: 2 },
     ] },
     InsnDef { mnemonic: "ldaa", modes: &[
         ModeEntry { mode: Mode::Imm8, prefix: &[0x75], operand_len: 1 },
@@ -760,6 +865,18 @@ pub static INSTRUCTIONS: &[InsnDef] = &[
         ModeEntry { mode: Mode::Ind16(IdxReg::Y), prefix: &[0x17, 0xDE], operand_len: 2 },
         ModeEntry { mode: Mode::Ind16(IdxReg::Z), prefix: &[0x17, 0xEE], operand_len: 2 },
     ] },
+    InsnDef { mnemonic: "lpstop", modes: &[
+        ModeEntry { mode: Mode::Inherent, prefix: &[0x27, 0xF1], operand_len: 0 },
+    ] },
+    InsnDef { mnemonic: "lsl", modes: &[
+        ModeEntry { mode: Mode::Ext, prefix: &[0x17, 0x34], operand_len: 2 },
+        ModeEntry { mode: Mode::Ind8(IdxReg::X), prefix: &[0x04], operand_len: 1 },
+        ModeEntry { mode: Mode::Ind8(IdxReg::Y), prefix: &[0x14], operand_len: 1 },
+        ModeEntry { mode: Mode::Ind8(IdxReg::Z), prefix: &[0x24], operand_len: 1 },
+        ModeEntry { mode: Mode::Ind16(IdxReg::X), prefix: &[0x17, 0x04], operand_len: 2 },
+        ModeEntry { mode: Mode::Ind16(IdxReg::Y), prefix: &[0x17, 0x14], operand_len: 2 },
+        ModeEntry { mode: Mode::Ind16(IdxReg::Z), prefix: &[0x17, 0x24], operand_len: 2 },
+    ] },
     InsnDef { mnemonic: "lsla", modes: &[
         ModeEntry { mode: Mode::Inherent, prefix: &[0x37, 0x04], operand_len: 0 },
     ] },
@@ -771,6 +888,15 @@ pub static INSTRUCTIONS: &[InsnDef] = &[
     ] },
     InsnDef { mnemonic: "lsle", modes: &[
         ModeEntry { mode: Mode::Inherent, prefix: &[0x27, 0x74], operand_len: 0 },
+    ] },
+    InsnDef { mnemonic: "lslm", modes: &[
+        ModeEntry { mode: Mode::Inherent, prefix: &[0x27, 0xB6], operand_len: 0 },
+    ] },
+    InsnDef { mnemonic: "lslw", modes: &[
+        ModeEntry { mode: Mode::Ext, prefix: &[0x27, 0x34], operand_len: 2 },
+        ModeEntry { mode: Mode::Ind16(IdxReg::X), prefix: &[0x27, 0x04], operand_len: 2 },
+        ModeEntry { mode: Mode::Ind16(IdxReg::Y), prefix: &[0x27, 0x14], operand_len: 2 },
+        ModeEntry { mode: Mode::Ind16(IdxReg::Z), prefix: &[0x27, 0x24], operand_len: 2 },
     ] },
     InsnDef { mnemonic: "lsr", modes: &[
         ModeEntry { mode: Mode::Ext, prefix: &[0x17, 0x3F], operand_len: 2 },
@@ -799,6 +925,9 @@ pub static INSTRUCTIONS: &[InsnDef] = &[
         ModeEntry { mode: Mode::Ind16(IdxReg::Y), prefix: &[0x27, 0x1F], operand_len: 2 },
         ModeEntry { mode: Mode::Ind16(IdxReg::Z), prefix: &[0x27, 0x2F], operand_len: 2 },
     ] },
+    InsnDef { mnemonic: "mac", modes: &[
+        ModeEntry { mode: Mode::Mac, prefix: &[0x7B], operand_len: 1 },
+    ] },
     InsnDef { mnemonic: "movb", modes: &[
         ModeEntry { mode: Mode::MovMm, prefix: &[0x37, 0xFE], operand_len: 4 },
         ModeEntry { mode: Mode::MovIdxExt, prefix: &[0x30], operand_len: 3 },
@@ -811,6 +940,15 @@ pub static INSTRUCTIONS: &[InsnDef] = &[
     InsnDef { mnemonic: "mul", modes: &[
         ModeEntry { mode: Mode::Inherent, prefix: &[0x37, 0x24], operand_len: 0 },
     ] },
+    InsnDef { mnemonic: "neg", modes: &[
+        ModeEntry { mode: Mode::Ext, prefix: &[0x17, 0x32], operand_len: 2 },
+        ModeEntry { mode: Mode::Ind8(IdxReg::X), prefix: &[0x02], operand_len: 1 },
+        ModeEntry { mode: Mode::Ind8(IdxReg::Y), prefix: &[0x12], operand_len: 1 },
+        ModeEntry { mode: Mode::Ind8(IdxReg::Z), prefix: &[0x22], operand_len: 1 },
+        ModeEntry { mode: Mode::Ind16(IdxReg::X), prefix: &[0x17, 0x02], operand_len: 2 },
+        ModeEntry { mode: Mode::Ind16(IdxReg::Y), prefix: &[0x17, 0x12], operand_len: 2 },
+        ModeEntry { mode: Mode::Ind16(IdxReg::Z), prefix: &[0x17, 0x22], operand_len: 2 },
+    ] },
     InsnDef { mnemonic: "nega", modes: &[
         ModeEntry { mode: Mode::Inherent, prefix: &[0x37, 0x02], operand_len: 0 },
     ] },
@@ -822,6 +960,12 @@ pub static INSTRUCTIONS: &[InsnDef] = &[
     ] },
     InsnDef { mnemonic: "nege", modes: &[
         ModeEntry { mode: Mode::Inherent, prefix: &[0x27, 0x72], operand_len: 0 },
+    ] },
+    InsnDef { mnemonic: "negw", modes: &[
+        ModeEntry { mode: Mode::Ext, prefix: &[0x27, 0x32], operand_len: 2 },
+        ModeEntry { mode: Mode::Ind16(IdxReg::X), prefix: &[0x27, 0x02], operand_len: 2 },
+        ModeEntry { mode: Mode::Ind16(IdxReg::Y), prefix: &[0x27, 0x12], operand_len: 2 },
+        ModeEntry { mode: Mode::Ind16(IdxReg::Z), prefix: &[0x27, 0x22], operand_len: 2 },
     ] },
     InsnDef { mnemonic: "nop", modes: &[
         ModeEntry { mode: Mode::Inherent, prefix: &[0x27, 0x4C], operand_len: 0 },
@@ -884,6 +1028,12 @@ pub static INSTRUCTIONS: &[InsnDef] = &[
     InsnDef { mnemonic: "pshm", modes: &[
         ModeEntry { mode: Mode::RegList, prefix: &[0x34], operand_len: 1 },
     ] },
+    InsnDef { mnemonic: "pshmac", modes: &[
+        ModeEntry { mode: Mode::Inherent, prefix: &[0x27, 0xB8], operand_len: 0 },
+    ] },
+    InsnDef { mnemonic: "pshx", modes: &[
+        ModeEntry { mode: Mode::Inherent, prefix: &[0x34, 0x04], operand_len: 0 },
+    ] },
     InsnDef { mnemonic: "pshy", modes: &[
         ModeEntry { mode: Mode::Inherent, prefix: &[0x34, 0x08], operand_len: 0 },
     ] },
@@ -896,11 +1046,26 @@ pub static INSTRUCTIONS: &[InsnDef] = &[
     InsnDef { mnemonic: "pulm", modes: &[
         ModeEntry { mode: Mode::RegList, prefix: &[0x35], operand_len: 1 },
     ] },
+    InsnDef { mnemonic: "pulmac", modes: &[
+        ModeEntry { mode: Mode::Inherent, prefix: &[0x27, 0xB9], operand_len: 0 },
+    ] },
+    InsnDef { mnemonic: "pulx", modes: &[
+        ModeEntry { mode: Mode::Inherent, prefix: &[0x35, 0x10], operand_len: 0 },
+    ] },
     InsnDef { mnemonic: "puly", modes: &[
         ModeEntry { mode: Mode::Inherent, prefix: &[0x35, 0x08], operand_len: 0 },
     ] },
     InsnDef { mnemonic: "rmac", modes: &[
         ModeEntry { mode: Mode::Mac, prefix: &[0xFB], operand_len: 1 },
+    ] },
+    InsnDef { mnemonic: "rol", modes: &[
+        ModeEntry { mode: Mode::Ext, prefix: &[0x17, 0x3C], operand_len: 2 },
+        ModeEntry { mode: Mode::Ind8(IdxReg::X), prefix: &[0x0C], operand_len: 1 },
+        ModeEntry { mode: Mode::Ind8(IdxReg::Y), prefix: &[0x1C], operand_len: 1 },
+        ModeEntry { mode: Mode::Ind8(IdxReg::Z), prefix: &[0x2C], operand_len: 1 },
+        ModeEntry { mode: Mode::Ind16(IdxReg::X), prefix: &[0x17, 0x0C], operand_len: 2 },
+        ModeEntry { mode: Mode::Ind16(IdxReg::Y), prefix: &[0x17, 0x1C], operand_len: 2 },
+        ModeEntry { mode: Mode::Ind16(IdxReg::Z), prefix: &[0x17, 0x2C], operand_len: 2 },
     ] },
     InsnDef { mnemonic: "rola", modes: &[
         ModeEntry { mode: Mode::Inherent, prefix: &[0x37, 0x0C], operand_len: 0 },
@@ -913,6 +1078,21 @@ pub static INSTRUCTIONS: &[InsnDef] = &[
     ] },
     InsnDef { mnemonic: "role", modes: &[
         ModeEntry { mode: Mode::Inherent, prefix: &[0x27, 0x7C], operand_len: 0 },
+    ] },
+    InsnDef { mnemonic: "rolw", modes: &[
+        ModeEntry { mode: Mode::Ext, prefix: &[0x27, 0x3C], operand_len: 2 },
+        ModeEntry { mode: Mode::Ind16(IdxReg::X), prefix: &[0x27, 0x0C], operand_len: 2 },
+        ModeEntry { mode: Mode::Ind16(IdxReg::Y), prefix: &[0x27, 0x1C], operand_len: 2 },
+        ModeEntry { mode: Mode::Ind16(IdxReg::Z), prefix: &[0x27, 0x2C], operand_len: 2 },
+    ] },
+    InsnDef { mnemonic: "ror", modes: &[
+        ModeEntry { mode: Mode::Ext, prefix: &[0x17, 0x3E], operand_len: 2 },
+        ModeEntry { mode: Mode::Ind8(IdxReg::X), prefix: &[0x0E], operand_len: 1 },
+        ModeEntry { mode: Mode::Ind8(IdxReg::Y), prefix: &[0x1E], operand_len: 1 },
+        ModeEntry { mode: Mode::Ind8(IdxReg::Z), prefix: &[0x2E], operand_len: 1 },
+        ModeEntry { mode: Mode::Ind16(IdxReg::X), prefix: &[0x17, 0x0E], operand_len: 2 },
+        ModeEntry { mode: Mode::Ind16(IdxReg::Y), prefix: &[0x17, 0x1E], operand_len: 2 },
+        ModeEntry { mode: Mode::Ind16(IdxReg::Z), prefix: &[0x17, 0x2E], operand_len: 2 },
     ] },
     InsnDef { mnemonic: "rora", modes: &[
         ModeEntry { mode: Mode::Inherent, prefix: &[0x37, 0x0E], operand_len: 0 },
@@ -953,6 +1133,19 @@ pub static INSTRUCTIONS: &[InsnDef] = &[
         ModeEntry { mode: Mode::EInd(IdxReg::X), prefix: &[0x27, 0x42], operand_len: 0 },
         ModeEntry { mode: Mode::EInd(IdxReg::Y), prefix: &[0x27, 0x52], operand_len: 0 },
         ModeEntry { mode: Mode::EInd(IdxReg::Z), prefix: &[0x27, 0x62], operand_len: 0 },
+    ] },
+    InsnDef { mnemonic: "sbcb", modes: &[
+        ModeEntry { mode: Mode::Imm8, prefix: &[0xF2], operand_len: 1 },
+        ModeEntry { mode: Mode::Ext, prefix: &[0x17, 0xF2], operand_len: 2 },
+        ModeEntry { mode: Mode::Ind8(IdxReg::X), prefix: &[0xC2], operand_len: 1 },
+        ModeEntry { mode: Mode::Ind8(IdxReg::Y), prefix: &[0xD2], operand_len: 1 },
+        ModeEntry { mode: Mode::Ind8(IdxReg::Z), prefix: &[0xE2], operand_len: 1 },
+        ModeEntry { mode: Mode::Ind16(IdxReg::X), prefix: &[0x17, 0xC2], operand_len: 2 },
+        ModeEntry { mode: Mode::Ind16(IdxReg::Y), prefix: &[0x17, 0xD2], operand_len: 2 },
+        ModeEntry { mode: Mode::Ind16(IdxReg::Z), prefix: &[0x17, 0xE2], operand_len: 2 },
+        ModeEntry { mode: Mode::EInd(IdxReg::X), prefix: &[0x27, 0xC2], operand_len: 0 },
+        ModeEntry { mode: Mode::EInd(IdxReg::Y), prefix: &[0x27, 0xD2], operand_len: 0 },
+        ModeEntry { mode: Mode::EInd(IdxReg::Z), prefix: &[0x27, 0xE2], operand_len: 0 },
     ] },
     InsnDef { mnemonic: "sbcd", modes: &[
         ModeEntry { mode: Mode::Imm16, prefix: &[0x37, 0xB2], operand_len: 2 },
@@ -1019,6 +1212,21 @@ pub static INSTRUCTIONS: &[InsnDef] = &[
         ModeEntry { mode: Mode::Ind16(IdxReg::Y), prefix: &[0x37, 0x5A], operand_len: 2 },
         ModeEntry { mode: Mode::Ind16(IdxReg::Z), prefix: &[0x37, 0x6A], operand_len: 2 },
     ] },
+    InsnDef { mnemonic: "sted", modes: &[
+        ModeEntry { mode: Mode::Ext, prefix: &[0x27, 0x73], operand_len: 2 },
+    ] },
+    InsnDef { mnemonic: "stop", modes: &[
+        ModeEntry { mode: Mode::Inherent, prefix: &[0x27, 0xF1], operand_len: 0 },
+    ] },
+    InsnDef { mnemonic: "sts", modes: &[
+        ModeEntry { mode: Mode::Ext, prefix: &[0x17, 0xBF], operand_len: 2 },
+        ModeEntry { mode: Mode::Ind8(IdxReg::X), prefix: &[0x8F], operand_len: 1 },
+        ModeEntry { mode: Mode::Ind8(IdxReg::Y), prefix: &[0x9F], operand_len: 1 },
+        ModeEntry { mode: Mode::Ind8(IdxReg::Z), prefix: &[0xAF], operand_len: 1 },
+        ModeEntry { mode: Mode::Ind16(IdxReg::X), prefix: &[0x17, 0x8F], operand_len: 2 },
+        ModeEntry { mode: Mode::Ind16(IdxReg::Y), prefix: &[0x17, 0x9F], operand_len: 2 },
+        ModeEntry { mode: Mode::Ind16(IdxReg::Z), prefix: &[0x17, 0xAF], operand_len: 2 },
+    ] },
     InsnDef { mnemonic: "stx", modes: &[
         ModeEntry { mode: Mode::Ext, prefix: &[0x17, 0xBC], operand_len: 2 },
         ModeEntry { mode: Mode::Ind8(IdxReg::X), prefix: &[0x8C], operand_len: 1 },
@@ -1036,6 +1244,15 @@ pub static INSTRUCTIONS: &[InsnDef] = &[
         ModeEntry { mode: Mode::Ind16(IdxReg::X), prefix: &[0x17, 0x8D], operand_len: 2 },
         ModeEntry { mode: Mode::Ind16(IdxReg::Y), prefix: &[0x17, 0x9D], operand_len: 2 },
         ModeEntry { mode: Mode::Ind16(IdxReg::Z), prefix: &[0x17, 0xAD], operand_len: 2 },
+    ] },
+    InsnDef { mnemonic: "stz", modes: &[
+        ModeEntry { mode: Mode::Ext, prefix: &[0x17, 0xBE], operand_len: 2 },
+        ModeEntry { mode: Mode::Ind8(IdxReg::X), prefix: &[0x8E], operand_len: 1 },
+        ModeEntry { mode: Mode::Ind8(IdxReg::Y), prefix: &[0x9E], operand_len: 1 },
+        ModeEntry { mode: Mode::Ind8(IdxReg::Z), prefix: &[0xAE], operand_len: 1 },
+        ModeEntry { mode: Mode::Ind16(IdxReg::X), prefix: &[0x17, 0x8E], operand_len: 2 },
+        ModeEntry { mode: Mode::Ind16(IdxReg::Y), prefix: &[0x17, 0x9E], operand_len: 2 },
+        ModeEntry { mode: Mode::Ind16(IdxReg::Z), prefix: &[0x17, 0xAE], operand_len: 2 },
     ] },
     InsnDef { mnemonic: "suba", modes: &[
         ModeEntry { mode: Mode::Imm8, prefix: &[0x70], operand_len: 1 },
@@ -1083,11 +1300,17 @@ pub static INSTRUCTIONS: &[InsnDef] = &[
         ModeEntry { mode: Mode::Ind16(IdxReg::Y), prefix: &[0x37, 0x50], operand_len: 2 },
         ModeEntry { mode: Mode::Ind16(IdxReg::Z), prefix: &[0x37, 0x60], operand_len: 2 },
     ] },
+    InsnDef { mnemonic: "swi", modes: &[
+        ModeEntry { mode: Mode::Inherent, prefix: &[0x37, 0x20], operand_len: 0 },
+    ] },
     InsnDef { mnemonic: "sxt", modes: &[
         ModeEntry { mode: Mode::Inherent, prefix: &[0x27, 0xF8], operand_len: 0 },
     ] },
     InsnDef { mnemonic: "tab", modes: &[
         ModeEntry { mode: Mode::Inherent, prefix: &[0x37, 0x17], operand_len: 0 },
+    ] },
+    InsnDef { mnemonic: "tap", modes: &[
+        ModeEntry { mode: Mode::Inherent, prefix: &[0x37, 0xFD], operand_len: 0 },
     ] },
     InsnDef { mnemonic: "tba", modes: &[
         ModeEntry { mode: Mode::Inherent, prefix: &[0x37, 0x07], operand_len: 0 },
@@ -1113,8 +1336,17 @@ pub static INSTRUCTIONS: &[InsnDef] = &[
     InsnDef { mnemonic: "tdmsk", modes: &[
         ModeEntry { mode: Mode::Inherent, prefix: &[0x37, 0x2F], operand_len: 0 },
     ] },
+    InsnDef { mnemonic: "tdp", modes: &[
+        ModeEntry { mode: Mode::Inherent, prefix: &[0x37, 0x2D], operand_len: 0 },
+    ] },
     InsnDef { mnemonic: "ted", modes: &[
         ModeEntry { mode: Mode::Inherent, prefix: &[0x27, 0xFB], operand_len: 0 },
+    ] },
+    InsnDef { mnemonic: "tedm", modes: &[
+        ModeEntry { mode: Mode::Inherent, prefix: &[0x27, 0xB1], operand_len: 0 },
+    ] },
+    InsnDef { mnemonic: "tekb", modes: &[
+        ModeEntry { mode: Mode::Inherent, prefix: &[0x27, 0xBB], operand_len: 0 },
     ] },
     InsnDef { mnemonic: "tem", modes: &[
         ModeEntry { mode: Mode::Inherent, prefix: &[0x27, 0xB2], operand_len: 0 },
@@ -1125,8 +1357,17 @@ pub static INSTRUCTIONS: &[InsnDef] = &[
     InsnDef { mnemonic: "tmet", modes: &[
         ModeEntry { mode: Mode::Inherent, prefix: &[0x27, 0xB5], operand_len: 0 },
     ] },
+    InsnDef { mnemonic: "tmxed", modes: &[
+        ModeEntry { mode: Mode::Inherent, prefix: &[0x27, 0xB3], operand_len: 0 },
+    ] },
     InsnDef { mnemonic: "tpa", modes: &[
         ModeEntry { mode: Mode::Inherent, prefix: &[0x37, 0xFC], operand_len: 0 },
+    ] },
+    InsnDef { mnemonic: "tpd", modes: &[
+        ModeEntry { mode: Mode::Inherent, prefix: &[0x37, 0x2C], operand_len: 0 },
+    ] },
+    InsnDef { mnemonic: "tskb", modes: &[
+        ModeEntry { mode: Mode::Inherent, prefix: &[0x37, 0xAF], operand_len: 0 },
     ] },
     InsnDef { mnemonic: "tst", modes: &[
         ModeEntry { mode: Mode::Ext, prefix: &[0x17, 0x36], operand_len: 2 },
@@ -1155,11 +1396,20 @@ pub static INSTRUCTIONS: &[InsnDef] = &[
         ModeEntry { mode: Mode::Ind16(IdxReg::Y), prefix: &[0x27, 0x16], operand_len: 2 },
         ModeEntry { mode: Mode::Ind16(IdxReg::Z), prefix: &[0x27, 0x26], operand_len: 2 },
     ] },
+    InsnDef { mnemonic: "tsx", modes: &[
+        ModeEntry { mode: Mode::Inherent, prefix: &[0x27, 0x4F], operand_len: 0 },
+    ] },
     InsnDef { mnemonic: "tsy", modes: &[
         ModeEntry { mode: Mode::Inherent, prefix: &[0x27, 0x5F], operand_len: 0 },
     ] },
+    InsnDef { mnemonic: "tsz", modes: &[
+        ModeEntry { mode: Mode::Inherent, prefix: &[0x27, 0x6F], operand_len: 0 },
+    ] },
     InsnDef { mnemonic: "txkb", modes: &[
         ModeEntry { mode: Mode::Inherent, prefix: &[0x37, 0xAC], operand_len: 0 },
+    ] },
+    InsnDef { mnemonic: "txs", modes: &[
+        ModeEntry { mode: Mode::Inherent, prefix: &[0x37, 0x4E], operand_len: 0 },
     ] },
     InsnDef { mnemonic: "txy", modes: &[
         ModeEntry { mode: Mode::Inherent, prefix: &[0x27, 0x5C], operand_len: 0 },
@@ -1167,8 +1417,32 @@ pub static INSTRUCTIONS: &[InsnDef] = &[
     InsnDef { mnemonic: "txz", modes: &[
         ModeEntry { mode: Mode::Inherent, prefix: &[0x27, 0x6C], operand_len: 0 },
     ] },
+    InsnDef { mnemonic: "tykb", modes: &[
+        ModeEntry { mode: Mode::Inherent, prefix: &[0x37, 0xAD], operand_len: 0 },
+    ] },
+    InsnDef { mnemonic: "tys", modes: &[
+        ModeEntry { mode: Mode::Inherent, prefix: &[0x37, 0x5E], operand_len: 0 },
+    ] },
     InsnDef { mnemonic: "tyx", modes: &[
         ModeEntry { mode: Mode::Inherent, prefix: &[0x27, 0x4D], operand_len: 0 },
+    ] },
+    InsnDef { mnemonic: "tyz", modes: &[
+        ModeEntry { mode: Mode::Inherent, prefix: &[0x27, 0x6D], operand_len: 0 },
+    ] },
+    InsnDef { mnemonic: "tzkb", modes: &[
+        ModeEntry { mode: Mode::Inherent, prefix: &[0x37, 0xAE], operand_len: 0 },
+    ] },
+    InsnDef { mnemonic: "tzs", modes: &[
+        ModeEntry { mode: Mode::Inherent, prefix: &[0x37, 0x6E], operand_len: 0 },
+    ] },
+    InsnDef { mnemonic: "tzx", modes: &[
+        ModeEntry { mode: Mode::Inherent, prefix: &[0x27, 0x4E], operand_len: 0 },
+    ] },
+    InsnDef { mnemonic: "tzy", modes: &[
+        ModeEntry { mode: Mode::Inherent, prefix: &[0x27, 0x5E], operand_len: 0 },
+    ] },
+    InsnDef { mnemonic: "wai", modes: &[
+        ModeEntry { mode: Mode::Inherent, prefix: &[0x27, 0xF3], operand_len: 0 },
     ] },
     InsnDef { mnemonic: "xgab", modes: &[
         ModeEntry { mode: Mode::Inherent, prefix: &[0x37, 0x1A], operand_len: 0 },

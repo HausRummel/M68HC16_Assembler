@@ -48,8 +48,17 @@ $MODES = @(
     @{ n='reg';    k='diff';   a='d,e';         b='x,y' }
 )
 
+# NOTE: passing -Mnemonics explicitly probes just that set (write to a scratch
+# -OutTsv and MERGE into docs/spec/isa-table.tsv — that canonical table is
+# hand-maintained and carries modes the differential probe cannot reach:
+# BitIndW (bsetw/bclrw), Mac (mac/rmac), mov_*, ind20, and the bit-indexed forms.
+# The no-arg default below seeds only mnemonics that appear in OUR corpus; that
+# corpus-subset scoping is exactly what left TSX/PSHX/NEG (and ~60 other valid
+# HC16 ops) out until a different source release exercised them.
 if (-not $Mnemonics) {
-    $DIRECTIVES = @('org','equ','set','fcb','fdb','fcc','rmb','dc','ds','dcb','end','page','plen','ttl','title','spc','tabs','llen','nol','nolist','list','nopage','newpage','opt','include','incbin','asct','bsct','psct','dsct','csct','idsct','ipsct','section','base','align','even','longeven','mlist','alist','clist','file','fail','macro','endm','mexit','if','ifc','ifnc','ifdef','ifndef','ifeq','ifne','ifgt','iflt','ifge','ifle','else','elsec','endc','endi','endf','while','repeat','endw','endr','exitm','regdef','lreg','xdef','xref','xrefb','global','extern','public','common','comment','offset','struct','ends','reg','sttl')
+    # 'bsz' (block-storage-zeros) is a directive, not an opcode: probing it emits a
+    # bogus all-zero "encoding" while the location counter jumps by the operand.
+    $DIRECTIVES = @('org','equ','set','fcb','fdb','fcc','rmb','dc','ds','dcb','bsz','end','page','plen','ttl','title','spc','tabs','llen','nol','nolist','list','nopage','newpage','opt','include','incbin','asct','bsct','psct','dsct','csct','idsct','ipsct','section','base','align','even','longeven','mlist','alist','clist','file','fail','macro','endm','mexit','if','ifc','ifnc','ifdef','ifndef','ifeq','ifne','ifgt','iflt','ifge','ifle','else','elsec','endc','endi','endf','while','repeat','endw','endr','exitm','regdef','lreg','xdef','xref','xrefb','global','extern','public','common','comment','offset','struct','ends','reg','sttl')
     $table=@{}; Get-Content (Join-Path $specDir 'masm-mnemonic-table.tsv') | Select-Object -Skip 1 | ForEach-Object { $c=$_ -split "`t"; if($c.Count -ge 5){$table[$c[4]]=$true} }
     $corpus=@(); Get-Content (Join-Path $specDir 'corpus-op-frequency.tsv') | Select-Object -Skip 1 | ForEach-Object { $c=$_ -split "`t"; if($c.Count -ge 1){$corpus+=$c[0]} }
     $Mnemonics = $corpus | Where-Object { $table.ContainsKey($_) -and ($DIRECTIVES -notcontains $_) } | Sort-Object -Unique
