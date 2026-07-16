@@ -38,6 +38,14 @@ The optimized binaries land in `target/release/`:
 
 A debug build is just `cargo build`. Run the test suite with `cargo test`.
 
+## Download (prebuilt binaries)
+
+If you'd rather not build from source, grab a prebuilt Windows `x86_64` binary from
+the [**Releases**](https://github.com/hausrummel/m68hc16_assembler/releases) page.
+Each release attaches the CLI and GUI executables, a `THIRD-PARTY-LICENSES`
+manifest, and a `SHA256SUMS` file — verify your download with
+`sha256sum -c SHA256SUMS` (or `Get-FileHash` on Windows).
+
 ## Command-line usage
 
 ```sh
@@ -108,4 +116,14 @@ tools/oracle             golden-oracle harness used to validate output byte-for-
 
 ## License
 
-See [LICENSE](LICENSE).
+Licensed under the **Apache License, Version 2.0** — see [LICENSE](LICENSE) and
+[NOTICE](NOTICE). Unless you state otherwise, any contribution you intentionally
+submit for inclusion in this work shall be licensed as above, without additional
+terms or conditions (Apache-2.0 §5).
+
+Prebuilt binaries statically link third-party crates and embed fonts (under
+permissive licenses such as MIT, BSD, Zlib, Unicode-3.0, OFL-1.1 and the Ubuntu
+Font License). A complete `THIRD-PARTY-LICENSES` manifest is generated per release
+and attached to each release archive; regenerate it locally with
+[`cargo-about`](https://github.com/EmbarkStudios/cargo-about) via
+`cargo about generate about.hbs -o THIRD-PARTY-LICENSES.html`.
