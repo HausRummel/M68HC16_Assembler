@@ -1,0 +1,11 @@
+M68HC16 Assembler
+Copyright 2026 hausrummel
+
+This product is licensed under the Apache License, Version 2.0 (see the LICENSE
+file). It is a clean-room reimplementation of the Motorola Macro Assembler
+(MASM) 4.6 for the M68HC16 (CPU16); "Motorola", "MASM", and "M68HC16" are used
+only to describe the compatibility target and imply no endorsement.
+
+Distributed binaries statically link third-party Rust crates and embed fonts.
+Their license and attribution notices are collected in THIRD-PARTY-LICENSES,
+which is generated per release and attached to the release archive.

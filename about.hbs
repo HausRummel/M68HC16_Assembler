@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Third-party licenses — M68HC16 Assembler</title>
+<style>
+  body { font-family: system-ui, sans-serif; margin: 2rem auto; max-width: 60rem; padding: 0 1rem; }
+  h2 { border-bottom: 1px solid #ccc; padding-bottom: .2rem; margin-top: 2rem; }
+  ul { columns: 2; }
+  pre { background: #f6f8fa; padding: 1rem; overflow-x: auto; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<h1>Third-party licenses</h1>
+<p>
+  The prebuilt M68HC16 Assembler binaries statically link the following
+  third-party Rust crates and embedded fonts. Each is distributed under the
+  license reproduced below. The assembler itself is licensed under Apache-2.0
+  (see the accompanying LICENSE and NOTICE files).
+</p>
+
+<h2>Overview</h2>
+<ul>
+{{#each overview}}
+  <li>{{name}} ({{count}})</li>
+{{/each}}
+</ul>
+
+{{#each licenses}}
+<h2>{{name}} ({{id}})</h2>
+<p>Used by:</p>
+<ul>
+{{#each used_by}}
+  <li><a href="{{crate.repository}}">{{crate.name}} {{crate.version}}</a></li>
+{{/each}}
+</ul>
+<pre>{{text}}</pre>
+{{/each}}
+</body>
+</html>

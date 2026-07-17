@@ -1,0 +1,55 @@
+name: release
+
+# Build the Windows binaries, generate the third-party license manifest and
+# checksums, and publish them all as assets on a GitHub Release when a version
+# tag (e.g. v0.1.0) is pushed. The binaries are never committed to the repo.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Build release binaries
+        run: cargo build --release --workspace
+
+      - name: Run tests
+        run: cargo test --workspace
+
+      - name: Install cargo-about
+        run: cargo install --locked --features cli cargo-about
+
+      - name: Generate third-party license manifest
+        run: cargo about generate about.hbs -o THIRD-PARTY-LICENSES.html
+
+      - name: Stage release artifacts
+        shell: pwsh
+        run: |
+          $ver = "${{ github.ref_name }}"
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Copy-Item target/release/m68hc16-asm.exe     "dist/m68hc16-asm-$ver-x86_64-windows.exe"
+          Copy-Item target/release/m68hc16-asm-gui.exe "dist/m68hc16-asm-gui-$ver-x86_64-windows.exe"
+          Copy-Item THIRD-PARTY-LICENSES.html dist/
+          Copy-Item LICENSE dist/LICENSE.txt
+          Copy-Item NOTICE  dist/NOTICE.txt
+          Get-FileHash dist/*.exe -Algorithm SHA256 |
+            ForEach-Object { "{0}  {1}" -f $_.Hash.ToLower(), (Split-Path $_.Path -Leaf) } |
+            Set-Content -Encoding ascii dist/SHA256SUMS
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          fail_on_unmatched_files: true
+          generate_release_notes: true

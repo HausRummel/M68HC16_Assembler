@@ -1,0 +1,34 @@
+# cargo-about configuration — https://embarkstudios.github.io/cargo-about/
+#
+# Generates the THIRD-PARTY-LICENSES manifest that ships with the prebuilt
+# binaries. Only crates that actually link into the shipped binary are
+# considered (dev/build deps do not end up in the distributed artifact).
+
+targets = ["x86_64-pc-windows-msvc"]
+ignore-dev-dependencies = true
+ignore-build-dependencies = true
+ignore-transitive-dependencies = false
+
+# For a crate offering a choice (e.g. "MIT OR Apache-2.0 OR LGPL-2.1-or-later"),
+# the first entry here that the expression allows is selected — so the permissive
+# option always wins and no copyleft terms are pulled in. Covers every license
+# observed in the resolved dependency tree.
+accepted = [
+    "Apache-2.0",
+    "MIT",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "Unicode-3.0",
+    "BSL-1.0",
+    "0BSD",
+    "Unlicense",
+    "OFL-1.1",
+    "LicenseRef-UFL-1.0",
+]
+
+# Known non-fatal warning: cargo-about 0.9 cannot locate the Ubuntu Font License
+# (LicenseRef-UFL-1.0) text inside epaint 0.28.1, so that font license is named in
+# the manifest but its full text is not inlined. Both fonts it covers are permitted
+# for redistribution in software.
