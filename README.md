@@ -114,6 +114,14 @@ docs/spec                ISA tables and encoding notes
 tools/oracle             golden-oracle harness used to validate output byte-for-byte
 ```
 
+## Related projects
+
+- [**Ghidra-Processor-MC68HC16Z**](https://github.com/HausRummel/Ghidra-Processor-MC68HC16Z):
+  a Ghidra (SLEIGH) processor module for the same CPU16 core, with bare-core, generic
+  MC68HC16Z2/Z3, and firmware-preset profiles. The two projects share a history:
+  firmware disassembled with that module served as encoding cross-checks while this
+  assembler's instruction tables were developed. Disassemble there, reassemble here.
+
 ## License
 
 Licensed under the **Apache License, Version 2.0** — see [LICENSE](LICENSE) and
