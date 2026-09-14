@@ -117,10 +117,10 @@ tools/oracle             golden-oracle harness used to validate output byte-for-
 ## Related projects
 
 - [**Ghidra-Processor-MC68HC16Z**](https://github.com/HausRummel/Ghidra-Processor-MC68HC16Z):
-  a Ghidra (SLEIGH) processor module for the MC68HC16 (CPU16). The two projects share
-  a history and cover opposite directions: the processor module disassembles and
-  decompiles HC16 binaries, this assembler builds them from source. Firmware images disassembled with that module served as encoding
-  cross-checks while the assembler's instruction tables were developed.
+  a Ghidra (SLEIGH) processor module for the same CPU16 core, with bare-core, generic
+  MC68HC16Z2/Z3, and firmware-preset profiles. The two projects share a history:
+  firmware disassembled with that module served as encoding cross-checks while this
+  assembler's instruction tables were developed. Disassemble there, reassemble here.
 
 ## License
 
