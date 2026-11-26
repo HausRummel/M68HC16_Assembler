@@ -677,7 +677,7 @@ mod tests {
     use crate::encoder::{assemble_source, LineEmit, ListLine};
 
     fn ll(text: &str, rel: u32, depth: u32) -> ListLine {
-        ListLine { text: text.to_string(), rel, depth, listed: true, assembled: true }
+        ListLine { text: text.to_string(), file: None, rel, depth, listed: true, assembled: true }
     }
 
     // Exercises every body rule: blank Loc/Obj on a comment; instruction object
