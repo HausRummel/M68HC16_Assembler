@@ -1,0 +1,211 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "M68HC16 Assembly",
+  "scopeName": "source.m68hc16",
+  "comment": "Motorola MASM dialect for the CPU16, following crates/m68hc16-asm/src/lexer.rs: a `*` or `;` line is a comment; a label starts in column 1 or ends with `:`; the operand is ONE whitespace-delimited token (quotes protect spaces) and everything after it is a comment, with or without `;`. Mnemonic lists are generated from isa/table.rs and checked by crates/m68hc16-asm/tests/vscode_grammar.rs.",
+  "patterns": [
+    {
+      "include": "#comment-line"
+    },
+    {
+      "include": "#statement"
+    }
+  ],
+  "repository": {
+    "comment-line": {
+      "match": "^\\s*[*;].*$",
+      "name": "comment.line.m68hc16"
+    },
+    "statement": {
+      "begin": "^(?:([A-Za-z_.$?][\\w.$?]*:?)|\\s+([A-Za-z_.$?][\\w.$?]*:)(?=\\s|$))?",
+      "end": "$",
+      "beginCaptures": {
+        "1": {
+          "name": "entity.name.label.m68hc16"
+        },
+        "2": {
+          "name": "entity.name.label.m68hc16"
+        }
+      },
+      "patterns": [
+        {
+          "match": "\\s*[;*].*$",
+          "name": "comment.line.m68hc16"
+        },
+        {
+          "include": "#include"
+        },
+        {
+          "include": "#inherent"
+        },
+        {
+          "include": "#instruction"
+        },
+        {
+          "include": "#directive-control"
+        },
+        {
+          "include": "#directive"
+        },
+        {
+          "include": "#macro-call"
+        }
+      ]
+    },
+    "inherent": {
+      "comment": "instructions with no operand",
+      "match": "\\s+(?i:\\b(lpstop|pshmac|pulmac|edivs|emuls|fmuls|tdmsk|tmxed|asla|aslb|asld|asle|aslm|asra|asrb|asrd|asre|asrm|bgnd|clra|clrb|clrd|clre|clrm|coma|comb|comd|come|deca|decb|ediv|emul|fdiv|idiv|inca|incb|ldhi|lsla|lslb|lsld|lsle|lslm|lsra|lsrb|lsrd|lsre|nega|negb|negd|nege|psha|pshb|pshx|pshy|pula|pulb|pulx|puly|rola|rolb|rold|role|rora|rorb|rord|rore|stop|tbek|tbsk|tbxk|tbyk|tbzk|tedm|tekb|tmer|tmet|tskb|tsta|tstb|tstd|tste|txkb|tykb|tzkb|xgab|xgde|xgdx|xgdy|xgdz|xgex|xgey|xgez|aba|abx|aby|abz|ace|ade|adx|ady|adz|aex|aey|aez|cba|daa|des|dex|dey|ins|inx|iny|mul|nop|rti|rts|sba|sde|swi|sxt|tab|tap|tba|tde|tdp|ted|tem|tpa|tpd|tsx|tsy|tsz|txs|txy|txz|tys|tyx|tyz|tzs|tzx|tzy|wai)\\b)(?=\\s|$)(.*)$",
+      "captures": {
+        "1": {
+          "name": "keyword.other.mnemonic.m68hc16"
+        },
+        "2": {
+          "name": "comment.line.trailing.m68hc16"
+        }
+      }
+    },
+    "instruction": {
+      "comment": "instructions with operands",
+      "match": "\\s+(?i:\\b(bclrw|brclr|brset|bsetw|adca|adcb|adcd|adce|adda|addb|addd|adde|anda|andb|andd|ande|andp|aslw|asrw|bclr|bita|bitb|bset|clrw|cmpa|cmpb|cmpx|cmpy|cmpz|comw|decw|eora|eorb|eord|eore|incw|lbcc|lbcs|lbeq|lbev|lbge|lbgt|lbhi|lbhs|lble|lblo|lbls|lblt|lbmi|lbmv|lbne|lbpl|lbra|lbrn|lbsr|lbvc|lbvs|ldaa|ldab|lded|lslw|lsrw|movb|movw|negw|oraa|orab|pshm|pulm|rmac|rolw|rorw|sbca|sbcb|sbcd|sbce|staa|stab|sted|suba|subb|subd|sube|tstw|ais|aix|aiy|aiz|asl|asr|bcc|bcs|beq|bge|bgt|bhi|bhs|ble|blo|bls|blt|bmi|bne|bpl|bra|brn|bsr|bvc|bvs|clr|com|cpd|cpe|cps|cpx|cpy|cpz|dec|inc|jmp|jsr|ldd|lde|lds|ldx|ldy|ldz|lsl|lsr|mac|neg|ord|ore|orp|rol|ror|std|ste|sts|stx|sty|stz|tst)\\b)(?=\\s|$)(?:[ \\t]+((?:\"[^\"]*\"?|\\'[^\\']*\\'?|[^\\s\"\\'])+))?(.*)$",
+      "captures": {
+        "1": {
+          "name": "keyword.other.mnemonic.m68hc16"
+        },
+        "2": {
+          "patterns": [
+            {
+              "include": "#operand"
+            }
+          ]
+        },
+        "3": {
+          "name": "comment.line.trailing.m68hc16"
+        }
+      }
+    },
+    "directive-control": {
+      "comment": "conditional, macro and include directives",
+      "match": "\\s+(?i:\\b(ifndef|elsec|endif|ifdef|macro|else|endc|endi|endm|ifeq|ifge|ifgt|ifle|iflt|ifnc|ifne|ifc|if)\\b)(?=\\s|$)(?:[ \\t]+((?:\"[^\"]*\"?|\\'[^\\']*\\'?|[^\\s\"\\'])+))?(.*)$",
+      "captures": {
+        "1": {
+          "name": "keyword.control.directive.m68hc16"
+        },
+        "2": {
+          "patterns": [
+            {
+              "include": "#operand"
+            }
+          ]
+        },
+        "3": {
+          "name": "comment.line.trailing.m68hc16"
+        }
+      }
+    },
+    "directive": {
+      "comment": "data, layout and listing directives",
+      "match": "\\s+(?i:\\b(longeven|nolist|dc\\.b|dc\\.w|mlist|asct|even|fail|list|page|plen|end|equ|fcb|fcc|fdb|opt|org|rmb|set|spc|ttl|ds)\\b)(?=\\s|$)(?:[ \\t]+((?:\"[^\"]*\"?|\\'[^\\']*\\'?|[^\\s\"\\'])+))?(.*)$",
+      "captures": {
+        "1": {
+          "name": "storage.type.directive.m68hc16"
+        },
+        "2": {
+          "patterns": [
+            {
+              "include": "#operand"
+            }
+          ]
+        },
+        "3": {
+          "name": "comment.line.trailing.m68hc16"
+        }
+      }
+    },
+    "macro-call": {
+      "comment": "any other operation is a macro invocation",
+      "match": "\\s+([A-Za-z_.$?][\\w.$?]*)(?=\\s|$)(?:[ \\t]+((?:\"[^\"]*\"?|\\'[^\\']*\\'?|[^\\s\"\\'])+))?(.*)$",
+      "captures": {
+        "1": {
+          "name": "entity.name.function.macro.m68hc16"
+        },
+        "2": {
+          "patterns": [
+            {
+              "include": "#operand"
+            }
+          ]
+        },
+        "3": {
+          "name": "comment.line.trailing.m68hc16"
+        }
+      }
+    },
+    "operand": {
+      "patterns": [
+        {
+          "match": "\"[^\"]*\"?",
+          "name": "string.quoted.double.m68hc16"
+        },
+        {
+          "match": "'[^']*'?",
+          "name": "string.quoted.single.m68hc16"
+        },
+        {
+          "match": "#",
+          "name": "keyword.operator.immediate.m68hc16"
+        },
+        {
+          "match": "\\$[0-9A-Fa-f]+",
+          "name": "constant.numeric.hex.m68hc16"
+        },
+        {
+          "match": "%[01]+\\b",
+          "name": "constant.numeric.binary.m68hc16"
+        },
+        {
+          "match": "@[0-7]+\\b",
+          "name": "constant.numeric.octal.m68hc16"
+        },
+        {
+          "match": "\\b[0-9]+\\b",
+          "name": "constant.numeric.decimal.m68hc16"
+        },
+        {
+          "match": "(?i)(?<=,)(x|y|z|d|e|k|ccr)\\b(?![\\w.$?])",
+          "name": "variable.language.register.m68hc16"
+        },
+        {
+          "match": "(?i)\\b(?:x|y|z|d|e|k|ccr)\\b(?=,)(?![\\w.$?])",
+          "name": "variable.language.register.m68hc16"
+        },
+        {
+          "match": "(?i)\\bPAGE(?=\\()",
+          "name": "support.function.builtin.m68hc16"
+        },
+        {
+          "match": "<<|>>|[-+*/%&|^~]",
+          "name": "keyword.operator.m68hc16"
+        },
+        {
+          "match": "[A-Za-z_.?][\\w.$?]*",
+          "name": "variable.other.symbol.m68hc16"
+        }
+      ]
+    },
+    "include": {
+      "comment": "INCLUDE takes a path relative to the including file",
+      "match": "\\s+(?i:\\b(include)\\b)(?=\\s|$)(?:[ \\t]+(\\\"[^\\\"]*\\\"?|\\S+))?(.*)$",
+      "captures": {
+        "1": {
+          "name": "keyword.control.directive.include.m68hc16"
+        },
+        "2": {
+          "name": "string.unquoted.path.m68hc16"
+        },
+        "3": {
+          "name": "comment.line.trailing.m68hc16"
+        }
+      }
+    }
+  }
+}

@@ -123,8 +123,15 @@ pub fn assemble(req: &AssembleRequest) -> AssembleResult {
     // reproduces them exactly (assembled tokens are ASCII, so unaffected).
     let src = encoder::decode_latin1(&bytes);
 
-    let obj = encoder::assemble_source_in(&src, req.input.parent());
-    result.diagnostics = obj.diagnostics;
+    let mut obj = encoder::assemble_source_in(&src, req.input.parent());
+    // Locations inside the top-level file carry no path; name it so every
+    // located diagnostic prints as `file:line:col`.
+    for d in &mut obj.diagnostics {
+        if let Some(loc) = d.loc.as_mut() {
+            loc.file.get_or_insert_with(|| req.input.clone());
+        }
+    }
+    result.diagnostics = std::mem::take(&mut obj.diagnostics);
     if result.has_errors() {
         return result;
     }

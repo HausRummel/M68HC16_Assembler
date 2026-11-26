@@ -8,7 +8,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use crate::diag::Diagnostic;
+use crate::diag::{Diagnostic, SourceLoc};
 use crate::expr::{self, EvalError};
 use crate::isa::{self, IdxReg, InsnDef, Mode, ModeEntry};
 use crate::lexer::split_line;
@@ -88,6 +88,9 @@ pub struct LineEmit {
 #[derive(Debug, Clone)]
 pub struct ListLine {
     pub text: String,
+    /// The file this line came from: `None` for the top-level source, else the
+    /// include path as resolved (relative to the including file's directory).
+    pub file: Option<PathBuf>,
     /// Line number within its own source file (the `Rel.` column).
     pub rel: u32,
     /// Include nesting depth; >0 prints the `i` suffix on `Rel.`.
@@ -212,6 +215,7 @@ pub fn assemble_source_in(src: &str, base_dir: Option<&Path>) -> Object {
             obj.sym_order = order_symbols(&obj.symbols, &lines, &obj.line_emit);
             obj.macros = macro_names.clone();
             obj.list_lines = list_lines.clone();
+            locate_diagnostics(&mut obj.diagnostics, &obj.list_lines);
             obj.asct = asct;
             if let Ok(path) = std::env::var("HC16_LISTLINES") {
                 use std::fmt::Write as _;
@@ -266,6 +270,7 @@ pub fn assemble_source_in(src: &str, base_dir: Option<&Path>) -> Object {
     obj.asct = asct;
     obj.macros = macro_names;
     obj.list_lines = list_lines;
+    locate_diagnostics(&mut obj.diagnostics, &obj.list_lines);
     let msg = match drift {
         Some((n, Some(first))) => {
             format!("assembly did not converge: {n} bytes still drifting (lowest at 0x{first:06X})")
@@ -274,6 +279,78 @@ pub fn assemble_source_in(src: &str, base_dir: Option<&Path>) -> Object {
     };
     obj.diagnostics.push(Diagnostic::warning(msg));
     obj
+}
+
+/// Map each diagnostic's flat-stream line back to its source file and line.
+///
+/// The `assembled` entries of `list_lines` equal the flat stream position for
+/// position (see [`Object::list_lines`]), so the k-th of them is the origin of
+/// stream line k+1. Macro expansion lines carry their invocation's location.
+fn locate_diagnostics(diags: &mut [Diagnostic], list_lines: &[ListLine]) {
+    let assembled: Vec<&ListLine> = list_lines.iter().filter(|l| l.assembled).collect();
+    for d in diags.iter_mut() {
+        if d.loc.is_some() {
+            continue;
+        }
+        let Some(ll) = d.line.and_then(|n| assembled.get((n as usize).wrapping_sub(1))) else {
+            continue;
+        };
+        d.loc = Some(SourceLoc { file: ll.file.clone(), line: ll.rel, col: guess_col(&ll.text, &d.message) });
+    }
+}
+
+/// Best-effort 1-based column for a message about `text`: the first symbol the
+/// message quotes (`"NAME"` or `` `NAME` ``) if it appears on the line, else the
+/// operand field, else the operation field, else column 1.
+fn guess_col(text: &str, message: &str) -> u32 {
+    for (open, close) in [('"', '"'), ('`', '`')] {
+        if let Some(a) = message.find(open) {
+            if let Some(len) = message[a + 1..].find(close) {
+                let name = &message[a + 1..a + 1 + len];
+                if !name.is_empty() {
+                    if let Some(b) = find_token(text, name) {
+                        return char_col(text, b);
+                    }
+                }
+            }
+        }
+    }
+    let p = split_line(text);
+    field_col(text, p.operand.or(p.op))
+}
+
+/// Byte offset of `name` in `text` as a whole identifier (not inside a longer
+/// one), ignoring ASCII case as MASM does for mnemonics.
+fn find_token(text: &str, name: &str) -> Option<usize> {
+    let hay = text.to_ascii_lowercase();
+    let needle = name.to_ascii_lowercase();
+    let is_ident = |c: char| c.is_ascii_alphanumeric() || c == '_' || c == '.' || c == '$';
+    let mut from = 0;
+    while let Some(off) = hay[from..].find(&needle) {
+        let at = from + off;
+        let before = hay[..at].chars().next_back();
+        let after = hay[at + needle.len()..].chars().next();
+        if !before.is_some_and(is_ident) && !after.is_some_and(is_ident) {
+            return Some(at);
+        }
+        from = at + needle.len().max(1);
+    }
+    None
+}
+
+/// 1-based column of a field slice taken from `line` by [`split_line`].
+fn field_col(line: &str, field: Option<&str>) -> u32 {
+    match field {
+        Some(f) => {
+            let off = (f.as_ptr() as usize).wrapping_sub(line.as_ptr() as usize);
+            if off <= line.len() { char_col(line, off) } else { 1 }
+        }
+        None => 1,
+    }
+}
+
+fn char_col(line: &str, byte_off: usize) -> u32 {
+    line.get(..byte_off).map(|s| s.chars().count() as u32 + 1).unwrap_or(1)
 }
 
 /// Program symbols in MASM symbol-table order, which is FIRST-OCCURRENCE order: a
@@ -646,7 +723,7 @@ fn needs_wide(expr: &str, cur_line: u32, def_line: &HashMap<String, usize>) -> b
 /// transforms independent of assembly state, so they run once.
 fn preprocess(raw: &[String], base: Option<&Path>) -> Result<(Vec<String>, Vec<String>), Vec<Diagnostic>> {
     let mut diags = Vec::new();
-    let included = expand_includes(raw, base, 0, &mut diags);
+    let included = expand_includes(raw, base, None, 0, &mut diags);
     if !diags.is_empty() {
         return Err(diags);
     }
@@ -658,26 +735,38 @@ fn preprocess(raw: &[String], base: Option<&Path>) -> Result<(Vec<String>, Vec<S
     Ok((expanded, macro_names))
 }
 
-fn expand_includes(lines: &[String], base: Option<&Path>, depth: u32, diags: &mut Vec<Diagnostic>) -> Vec<String> {
+fn expand_includes(
+    lines: &[String],
+    base: Option<&Path>,
+    file: Option<&Path>,
+    depth: u32,
+    diags: &mut Vec<Diagnostic>,
+) -> Vec<String> {
     if depth > 32 {
         diags.push(Diagnostic::error("include nesting too deep"));
         return Vec::new();
     }
     let mut out = Vec::new();
-    for line in lines {
+    for (i, line) in lines.iter().enumerate() {
         let p = split_line(line);
         if p.op.map(|o| o.eq_ignore_ascii_case("include")).unwrap_or(false) {
+            let loc = SourceLoc {
+                file: file.map(Path::to_path_buf),
+                line: (i + 1) as u32,
+                col: field_col(line, p.operand.or(p.op)),
+            };
             let Some(name) = p.operand.map(|s| s.trim().trim_matches('"')) else {
-                diags.push(Diagnostic::error("include requires a filename"));
+                diags.push(Diagnostic::error("include requires a filename").with_loc(loc));
                 continue;
             };
             let path = base.map(|b| b.join(name)).unwrap_or_else(|| PathBuf::from(name));
             match std::fs::read(&path) {
                 Ok(bytes) => {
                     let sub: Vec<String> = decode_latin1(&bytes).lines().map(str::to_string).collect();
-                    out.extend(expand_includes(&sub, path.parent(), depth + 1, diags));
+                    out.extend(expand_includes(&sub, path.parent(), Some(&path), depth + 1, diags));
                 }
-                Err(e) => diags.push(Diagnostic::error(format!("cannot include {}: {e}", path.display()))),
+                Err(e) => diags
+                    .push(Diagnostic::error(format!("cannot include {}: {e}", path.display())).with_loc(loc)),
             }
         } else {
             out.push(line.clone());
@@ -693,7 +782,7 @@ fn expand_includes(lines: &[String], base: Option<&Path>, depth: u32, diags: &mu
 /// are dropped, as MASM does not list or count them.
 fn build_listing_lines(raw: &[String], base: Option<&Path>) -> Vec<ListLine> {
     let mut inc = Vec::new();
-    list_expand_includes(raw, base, 0, &mut inc);
+    list_expand_includes(raw, base, None, 0, &mut inc);
     let mut macros: HashMap<String, Vec<String>> = HashMap::new();
     let mut body: Vec<ListLine> = Vec::new();
     let mut current: Option<(String, Vec<String>)> = None;
@@ -749,7 +838,8 @@ fn build_listing_lines(raw: &[String], base: Option<&Path>) -> Vec<ListLine> {
     out
 }
 
-fn list_expand_includes(lines: &[String], base: Option<&Path>, depth: u32, out: &mut Vec<ListLine>) {
+fn list_expand_includes(lines: &[String], base: Option<&Path>, file: Option<&Path>, depth: u32, out: &mut Vec<ListLine>) {
+    let file = file.map(Path::to_path_buf);
     if depth > 32 {
         return;
     }
@@ -757,16 +847,16 @@ fn list_expand_includes(lines: &[String], base: Option<&Path>, depth: u32, out: 
         let p = split_line(line);
         let rel = (i + 1) as u32;
         if p.op.map(|o| o.eq_ignore_ascii_case("include")).unwrap_or(false) {
-            out.push(ListLine { text: line.clone(), rel, depth, listed: true, assembled: false });
+            out.push(ListLine { text: line.clone(), file: file.clone(), rel, depth, listed: true, assembled: false });
             if let Some(name) = p.operand.map(|s| s.trim().trim_matches('"')) {
                 let path = base.map(|b| b.join(name)).unwrap_or_else(|| PathBuf::from(name));
                 if let Ok(bytes) = std::fs::read(&path) {
                     let sub: Vec<String> = decode_latin1(&bytes).lines().map(str::to_string).collect();
-                    list_expand_includes(&sub, path.parent(), depth + 1, out);
+                    list_expand_includes(&sub, path.parent(), Some(&path), depth + 1, out);
                 }
             }
         } else {
-            out.push(ListLine { text: line.clone(), rel, depth, listed: true, assembled: true });
+            out.push(ListLine { text: line.clone(), file: file.clone(), rel, depth, listed: true, assembled: true });
         }
     }
 }
@@ -793,12 +883,12 @@ fn list_expand_invocations(
                 let mut expanded: Vec<ListLine> = Vec::new();
                 if let Some(lbl) = p.label {
                     expanded.push(ListLine {
-                        text: format!("{lbl}:"), rel: ll.rel, depth: ll.depth, listed: false, assembled: true,
+                        text: format!("{lbl}:"), file: ll.file.clone(), rel: ll.rel, depth: ll.depth, listed: false, assembled: true,
                     });
                 }
                 for bl in mbody {
                     expanded.push(ListLine {
-                        text: substitute_params(bl, &args), rel: ll.rel, depth: ll.depth, listed: false, assembled: true,
+                        text: substitute_params(bl, &args), file: ll.file.clone(), rel: ll.rel, depth: ll.depth, listed: false, assembled: true,
                     });
                 }
                 list_expand_invocations(&expanded, macros, depth + 1, out);

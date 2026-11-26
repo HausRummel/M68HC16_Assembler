@@ -104,12 +104,21 @@ tick which files to generate — **`.OBJ` `.S19` `.LST` `.BIN`** — and click *
 When **.BIN** is ticked, **Fill / Base / Size** hex fields appear (defaulting to the
 256 KB / `0xFF` window). The log lists every file written.
 
+## Editor support
+
+[`editors/vscode`](editors/vscode) is a VS Code extension: syntax highlighting for the
+MASM dialect, CP437 file encoding, and a `$m68hc16` problem matcher so a Ctrl+Shift+B
+build puts errors on the right line of the right file. Diagnostics print as
+`file:line:col: error: message`, pointing into the original source, `INCLUDE`d files
+included, so other editors and CI log parsers can use them too.
+
 ## Repository layout
 
 ```
 crates/m68hc16-asm       the assembler library (lexer, parser, encoder, output writers)
 crates/m68hc16-asm-cli   command-line front end
 crates/m68hc16-asm-gui   egui desktop front end
+editors/vscode           VS Code extension (grammar, problem matcher)
 docs/spec                ISA tables and encoding notes
 tools/oracle             golden-oracle harness used to validate output byte-for-byte
 ```
