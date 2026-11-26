@@ -7,6 +7,7 @@
 
 use std::path::{Path, PathBuf};
 
+pub mod analysis;
 pub mod diag;
 pub mod directives;
 pub mod encoder;
@@ -18,6 +19,9 @@ pub mod parser;
 pub mod symbols;
 
 use diag::Diagnostic;
+
+pub use analysis::{analyze, Analysis, SymbolInfo, SymbolKind};
+pub use encoder::{FsLoader, SourceLoader};
 
 /// The per-page timestamp MASM writes into `.LST` headers is wall-clock at
 /// generation time, so it is non-deterministic. We stamp one fixed value; like
