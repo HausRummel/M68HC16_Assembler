@@ -11,9 +11,46 @@ assembled by [`m68hc16-asm`](https://github.com/HausRummel/M68HC16_Assembler).
   (`INCLUDE io/LAMPS.ASM  * MIL LAMP` and `RTS  back to caller` both work).
 - **DOS code page.** Files open as CP437 by default, so box-drawing comment headers
   from DOS-era sources show correctly, and saving keeps the original bytes.
-- **Errors in the editor** through the `$m68hc16` problem matcher: build with
-  Ctrl+Shift+B and errors land on the right line and column of the right file, even
-  inside `INCLUDE`d files and macro calls.
+- **Live errors** as you type, from the real assembler run in memory by the
+  `m68hc16-lsp` language server, on the right line of the right file, even inside
+  `INCLUDE`d files and macro calls. Unsaved edits in any open file count.
+- **Go to definition** (F12) for labels, equates and macros, across files.
+- **Hover** on a symbol for its value, bank (`PK`) and offset, whether it is a
+  constant or an address, and where it is defined. Hover on a mnemonic for its
+  addressing modes and opcodes.
+- **Build task errors** through the `$m68hc16` problem matcher, for Ctrl+Shift+B.
+
+## Language server
+
+The editor features above come from `m68hc16-lsp`, built from this repository
+(`cargo build --release -p m68hc16-lsp`, or the Windows release download). The
+extension looks for it in this order:
+
+1. the `m68hc16.serverPath` setting,
+2. a copy shipped inside the extension (`server/m68hc16-lsp[.exe]`),
+3. `m68hc16-lsp` on your `PATH`.
+
+If none is found, highlighting and the build task still work, and the extension
+says once that the server is missing. **M68HC16: Restart Language Server** in the
+Command Palette restarts it after you install or rebuild it.
+
+### Which file gets assembled
+
+An `INCLUDE`d fragment can't be assembled on its own, so the server assembles the
+top-level file that pulls it in. By default that is any source in the workspace
+that no other source includes; if several do, the one with the largest include
+tree wins. To choose explicitly, set `m68hc16.rootFiles`:
+
+```jsonc
+// .vscode/settings.json
+{ "m68hc16.rootFiles": ["src/main.asm"] }
+```
+
+A file that no root includes is assembled on its own, and an information note at
+the top of the file says so when that leaves symbols undefined.
+
+A full assemble of a large program takes under a second, so the server waits
+until you pause typing (0.4 s) and then re-assembles in the background.
 
 ## Build task
 
@@ -39,14 +76,23 @@ report every symbol it borrows as undefined.
 }
 ```
 
-`m68hc16-asm` must be on your `PATH` (or give its full path as `command`), and the
+The build task and the language server report the same errors, so after a build
+you may see each one twice (once per source) until the next edit; that is
+expected. `m68hc16-asm` must be on your `PATH` (or give its full path as `command`), and the
 output directory (`build` here) must already exist. Run the task from the workspace
 root: the assembler prints paths relative to its working directory, which is how
 the problem matcher finds the files.
 
 ## Settings
 
-The extension sets these for M68HC16 files only. Override them in your own
+| Setting | Default | What |
+|---|---|---|
+| `m68hc16.rootFiles` | `[]` | top-level files to assemble (see above) |
+| `m68hc16.serverPath` | `""` | path to `m68hc16-lsp` |
+| `m68hc16.server.enable` | `true` | turn the language server off |
+| `m68hc16.trace.server` | `off` | log LSP traffic to the Output panel |
+
+The extension also sets these for M68HC16 files only. Override them in your own
 settings under `"[m68hc16]"`:
 
 | Setting | Default | Why |
@@ -63,19 +109,24 @@ back to the language you use there.
 ## Install from source
 
 ```sh
+cargo build --release -p m68hc16-lsp
 cd editors/vscode
+npm ci
+mkdir -p server && cp ../../target/release/m68hc16-lsp server/   # optional: bundle the server
 npx @vscode/vsce package          # writes m68hc16-asm-<version>.vsix
 code --install-extension m68hc16-asm-*.vsix
 ```
+
+A `.vsix` with a bundled server only works on that server's platform; package it
+with `--target` (for example `vsce package --target win32-x64`) so the
+Marketplace serves each platform its own build.
 
 Or, while working on the grammar, open `editors/vscode` in VS Code and press F5 to
 start an Extension Development Host.
 
 ## Roadmap
 
-A language server (`crates/m68hc16-lsp`) built on the assembler's own parser, for
-live diagnostics, go to definition, find references, and hover with resolved
-addresses and `EQU` values.
+Find All References and autocomplete (labels, equates, macros, mnemonics).
 
 ## License
 

@@ -1,1 +1,5 @@
 **/*.vsix
+src/**
+out/**/*.map
+tsconfig.json
+.gitignore

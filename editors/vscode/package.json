@@ -1,8 +1,8 @@
 {
   "name": "m68hc16-asm",
   "displayName": "M68HC16 Assembly",
-  "description": "Syntax highlighting, build task problem matcher and DOS code page defaults for Motorola M68HC16 (CPU16) assembly in the MASM dialect.",
-  "version": "0.1.0",
+  "description": "Syntax highlighting, live errors, go to definition and hover for Motorola M68HC16 (CPU16) assembly in the MASM dialect.",
+  "version": "0.2.0",
   "publisher": "hausrummel",
   "license": "Apache-2.0",
   "repository": {
@@ -11,7 +11,7 @@
     "directory": "editors/vscode"
   },
   "engines": {
-    "vscode": "^1.75.0"
+    "vscode": "^1.82.0"
   },
   "categories": [
     "Programming Languages"
@@ -23,6 +23,10 @@
     "assembly",
     "masm"
   ],
+  "activationEvents": [
+    "onLanguage:m68hc16"
+  ],
+  "main": "./out/extension.js",
   "contributes": {
     "languages": [
       {
@@ -74,6 +78,59 @@
           "message": 5
         }
       }
-    ]
+    ],
+    "commands": [
+      {
+        "command": "m68hc16.restartServer",
+        "title": "Restart Language Server",
+        "category": "M68HC16"
+      }
+    ],
+    "configuration": {
+      "title": "M68HC16",
+      "properties": {
+        "m68hc16.rootFiles": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "markdownDescription": "Top-level files to assemble (the ones that `INCLUDE` the rest), absolute or relative to the first workspace folder. Empty: use every source no other source includes."
+        },
+        "m68hc16.serverPath": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Path to `m68hc16-lsp`. Empty: use one shipped with the extension, else find it on `PATH`."
+        },
+        "m68hc16.server.enable": {
+          "type": "boolean",
+          "default": true,
+          "description": "Run the language server (live errors, go to definition, hover)."
+        },
+        "m68hc16.trace.server": {
+          "type": "string",
+          "enum": [
+            "off",
+            "messages",
+            "verbose"
+          ],
+          "default": "off",
+          "description": "Log messages between VS Code and the language server to the Output panel."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p .",
+    "watch": "tsc -watch -p .",
+    "vscode:prepublish": "npm run compile"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^18.19.0",
+    "@types/vscode": "~1.82.0",
+    "typescript": "^5.4.0"
   }
 }
