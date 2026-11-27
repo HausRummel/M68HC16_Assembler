@@ -101,7 +101,17 @@ settings under `"[m68hc16]"`:
 | `editor.insertSpaces` | `true` | column alignment survives any tab width |
 | `editor.detectIndentation` | `false` | keeps the above from being overridden per file |
 
-The extension claims `.asm` and `.inc`. If you also edit other assembly languages,
+If a file opens as **Plain Text** (no highlighting, hover or squiggles), a
+`files.associations` setting or another extension has claimed it. Click the
+language name in the status bar and pick **M68HC16 Assembly**, or pin it for the
+workspace:
+
+```jsonc
+// .vscode/settings.json
+{ "files.associations": { "*.asm": "m68hc16", "*.ASM": "m68hc16", "*.inc": "m68hc16" } }
+```
+
+The extension claims `.asm` and `.inc`, in any letter case. If you also edit other assembly languages,
 map just your HC16 folders in workspace settings, for example
 `"files.associations": { "**/hc16/**/*.asm": "m68hc16" }`, and set other folders
 back to the language you use there.

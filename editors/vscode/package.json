@@ -41,7 +41,11 @@
           ".inc",
           ".INC"
         ],
-        "configuration": "./language-configuration.json"
+        "configuration": "./language-configuration.json",
+        "filenamePatterns": [
+          "*.[aA][sS][mM]",
+          "*.[iI][nN][cC]"
+        ]
       }
     ],
     "grammars": [
