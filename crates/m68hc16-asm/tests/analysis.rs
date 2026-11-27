@@ -84,3 +84,29 @@ fn unclosed_macro_is_located_and_closed() {
     assert_eq!((loc.line, loc.col), (2, 9));
     assert_eq!(a.symbol("M1").unwrap().kind, SymbolKind::Macro);
 }
+
+#[test]
+fn references_cover_definitions_operands_and_macro_calls() {
+    let mem = Mem::new(&[
+        (ROOT, "RB      equ     $10\n        org     $1000\n        include sub/LIB.ASM\nSTART:  ldaa    RB+1,Z  ; RB in comment\n        DELAY   RB\n"),
+        ("/w/sub/LIB.ASM", "DELAY:  macro\n        ldab    #\\1\n        endm\nHELPER: ldx     #RB*2\n        fcc     \"RB\"\n        ldd     $RB\n"),
+    ]);
+    let a = analyze(Path::new(ROOT), &mem);
+    let at = |n: &str| -> Vec<(String, u32, u32)> {
+        a.references[n]
+            .iter()
+            .map(|l| (l.file.as_ref().unwrap().display().to_string(), l.line, l.col))
+            .collect()
+    };
+    assert_eq!(
+        at("RB"),
+        vec![
+            (ROOT.to_string(), 1, 1),
+            (ROOT.to_string(), 4, 17),
+            (ROOT.to_string(), 5, 17),
+            ("/w/sub/LIB.ASM".to_string(), 4, 18),
+        ]
+    );
+    // In file order: the root, then what it includes.
+    assert_eq!(at("DELAY"), vec![(ROOT.to_string(), 5, 9), ("/w/sub/LIB.ASM".to_string(), 1, 1)]);
+}

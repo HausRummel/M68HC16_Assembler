@@ -109,8 +109,8 @@ When **.BIN** is ticked, **Fill / Base / Size** hex fields appear (defaulting to
 [`editors/vscode`](editors/vscode) is a VS Code extension: syntax highlighting for the
 MASM dialect, CP437 file encoding, and a `$m68hc16` problem matcher for Ctrl+Shift+B
 builds. With [`crates/m68hc16-lsp`](crates/m68hc16-lsp), a Language Server Protocol
-server that runs this assembler in memory, it also gives live errors, go to definition
-and hover with symbol values. The server speaks standard LSP over stdio, so other
+server that runs this assembler in memory, it also gives live errors, go to definition,
+find references, hover with symbol values, autocomplete and an outline. The server speaks standard LSP over stdio, so other
 editors can use it too.
 
 Diagnostics print as `file:line:col: error: message`, pointing into the original

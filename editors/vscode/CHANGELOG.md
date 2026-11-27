@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.0
+
+- Find All References, autocomplete (mnemonics, directives, macros, symbols with values), document outline and workspace symbol search, from `m68hc16-lsp`.
+- `.asm` and `.inc` match in any letter case.
+
 ## 0.2.0
 
 - Language client for `m68hc16-lsp`: live errors while typing (unsaved buffers included), go to definition, and hover with symbol values, bank and offset, and mnemonic addressing modes.

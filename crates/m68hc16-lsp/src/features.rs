@@ -133,6 +133,123 @@ pub fn mnemonic_hover(word: &str) -> Option<String> {
     Some(out)
 }
 
+/// Which source field a cursor column (0-based) falls in, following the MASM
+/// layout: `[label] op [operand] [comment]`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Field {
+    Label,
+    Op,
+    Operand,
+    Comment,
+}
+
+pub fn field_at(line: &str, col: usize) -> Field {
+    let chars: Vec<char> = line.chars().collect();
+    let col = col.min(chars.len());
+    let first = chars.iter().position(|c| !c.is_whitespace());
+    if first.is_some_and(|f| f < col && matches!(chars[f], '*' | ';')) {
+        return Field::Comment;
+    }
+    let mut i = 0;
+    // Column-1 label.
+    if chars.first().is_some_and(|c| !c.is_whitespace()) {
+        while i < chars.len() && !chars[i].is_whitespace() {
+            i += 1;
+        }
+        if col <= i {
+            return Field::Label;
+        }
+    }
+    let skip_ws = |mut i: usize| {
+        while i < chars.len() && chars[i].is_whitespace() {
+            i += 1;
+        }
+        i
+    };
+    i = skip_ws(i);
+    if i < chars.len() && matches!(chars[i], ';' | '*') {
+        return Field::Comment;
+    }
+    let op_start = i;
+    while i < chars.len() && !chars[i].is_whitespace() {
+        i += 1;
+    }
+    // An indented `LABEL:` is a label; the op follows it.
+    if i > op_start && chars[i - 1] == ':' {
+        if col <= i {
+            return Field::Label;
+        }
+        i = skip_ws(i);
+        while i < chars.len() && !chars[i].is_whitespace() {
+            i += 1;
+        }
+    }
+    if col <= i {
+        return Field::Op;
+    }
+    i = skip_ws(i);
+    if i < chars.len() && chars[i] == ';' {
+        return if col <= i { Field::Operand } else { Field::Comment };
+    }
+    // Operand: one token, quotes protect blanks.
+    let mut quote: Option<char> = None;
+    while i < chars.len() {
+        let c = chars[i];
+        match quote {
+            Some(q) if c == q => quote = None,
+            Some(_) => {}
+            None if c == '"' || c == '\'' => quote = Some(c),
+            None if c.is_whitespace() || c == ';' => break,
+            None => {}
+        }
+        i += 1;
+    }
+    if col <= i {
+        Field::Operand
+    } else {
+        Field::Comment
+    }
+}
+
+/// Directives the assembler understands, for completion.
+pub const DIRECTIVES: &[&str] = &[
+    "org", "equ", "set", "rmb", "ds", "even", "longeven", "fcb", "fdb", "fcc", "dc.b", "dc.w", "end", "include",
+    "macro", "endm", "if", "ifne", "ifeq", "ifge", "ifgt", "ifle", "iflt", "ifc", "ifnc", "ifdef", "ifndef", "else",
+    "elsec", "endc", "endif", "fail", "list", "nolist", "page", "ttl", "asct",
+];
+
+/// What a definition line declares, from its operation: code, data, storage
+/// or a constant. Drives outline icons.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DefKind {
+    Code,
+    Data,
+    Storage,
+    Constant,
+    Macro,
+}
+
+pub fn def_kind(line: &str) -> DefKind {
+    let op = m68hc16_asm::lexer::split_line(line).op.map(|o| o.to_ascii_lowercase());
+    match op.as_deref() {
+        Some("equ" | "set") => DefKind::Constant,
+        Some("macro") => DefKind::Macro,
+        Some("rmb" | "ds") => DefKind::Storage,
+        Some("fcb" | "fdb" | "fcc" | "dc.b" | "dc.w") => DefKind::Data,
+        _ => DefKind::Code,
+    }
+}
+
+/// Match the case the user is typing: all-caps unless the typed part has a
+/// lowercase letter.
+pub fn match_case(word: &str, typed: &str) -> String {
+    if typed.chars().any(|c| c.is_ascii_lowercase()) {
+        word.to_ascii_lowercase()
+    } else {
+        word.to_ascii_uppercase()
+    }
+}
+
 /// LSP severity number: 1 error, 2 warning, 3 information.
 pub fn severity_num(s: Severity) -> u8 {
     match s {
@@ -162,6 +279,33 @@ mod tests {
         assert_eq!(token_len("  ldaa  GONE,X", 8), 4);
         assert_eq!(token_len("  fcc  \"A B\" x", 7), 5);
         assert_eq!(token_len("", 0), 1);
+    }
+
+    #[test]
+    fn fields() {
+        let l = "LBL     LDAA    FOO,X   trailing";
+        assert_eq!(field_at(l, 2), Field::Label);
+        assert_eq!(field_at(l, 5), Field::Op);
+        assert_eq!(field_at(l, 10), Field::Op);
+        assert_eq!(field_at(l, 14), Field::Operand);
+        assert_eq!(field_at(l, 18), Field::Operand);
+        assert_eq!(field_at(l, 25), Field::Comment);
+        assert_eq!(field_at("        ", 8), Field::Op);
+        assert_eq!(field_at("        ld", 10), Field::Op);
+        assert_eq!(field_at("        ldaa    ", 16), Field::Operand);
+        assert_eq!(field_at("  X1:   ldaa", 10), Field::Op);
+        assert_eq!(field_at("* note", 4), Field::Comment);
+        assert_eq!(field_at("        fcc     \"A B\"  c", 19), Field::Operand);
+    }
+
+    #[test]
+    fn kinds_and_case() {
+        assert_eq!(def_kind("RB      EQU     $10"), DefKind::Constant);
+        assert_eq!(def_kind("BUF     RMB     4"), DefKind::Storage);
+        assert_eq!(def_kind("TBL:    FDB     1,2"), DefKind::Data);
+        assert_eq!(def_kind("START:"), DefKind::Code);
+        assert_eq!(match_case("ldaa", "LD"), "LDAA");
+        assert_eq!(match_case("LDAA", "ld"), "ldaa");
     }
 
     #[test]

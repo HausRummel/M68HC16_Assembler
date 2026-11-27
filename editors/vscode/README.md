@@ -14,7 +14,12 @@ assembled by [`m68hc16-asm`](https://github.com/HausRummel/M68HC16_Assembler).
 - **Live errors** as you type, from the real assembler run in memory by the
   `m68hc16-lsp` language server, on the right line of the right file, even inside
   `INCLUDE`d files and macro calls. Unsaved edits in any open file count.
-- **Go to definition** (F12) for labels, equates and macros, across files.
+- **Go to definition** (F12) and **Find All References** (Shift+F12) for labels,
+  equates and macros, across every file of the build.
+- **Autocomplete**: mnemonics, directives and macros in the operation field, and
+  labels and equates (with their values) in the operand field, in the case you type.
+- **Outline and Go to Symbol**: the Outline view, breadcrumbs and Ctrl+Shift+O list
+  each file's labels (code, data, storage, constants); Ctrl+T searches the whole build.
 - **Hover** on a symbol for its value, bank (`PK`) and offset, whether it is a
   constant or an address, and where it is defined. Hover on a mnemonic for its
   addressing modes and opcodes.
@@ -136,7 +141,7 @@ start an Extension Development Host.
 
 ## Roadmap
 
-Find All References and autocomplete (labels, equates, macros, mnemonics).
+Rename symbol, and hover names from an optional external symbol map.
 
 ## License
 
