@@ -1,8 +1,8 @@
 {
   "name": "m68hc16-asm",
   "displayName": "M68HC16 Assembly",
-  "description": "Syntax highlighting, live errors, go to definition and hover for Motorola M68HC16 (CPU16) assembly in the MASM dialect.",
-  "version": "0.2.0",
+  "description": "Syntax highlighting, live errors, go to definition, references, hover, autocomplete and outline for Motorola M68HC16 (CPU16) assembly in the MASM dialect.",
+  "version": "0.3.0",
   "publisher": "hausrummel",
   "license": "Apache-2.0",
   "repository": {

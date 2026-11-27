@@ -6,13 +6,18 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use m68hc16_asm::{analyze, Analysis, FsLoader, SourceLoader};
+use m68hc16_asm::diag::SourceLoc;
+use m68hc16_asm::isa::INSTRUCTIONS;
+use m68hc16_asm::{analyze, Analysis, FsLoader, SourceLoader, SymbolKind as AsmKind};
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer};
 
 use crate::discovery::{root_for, Graph};
-use crate::features::{mnemonic_hover, severity_num, symbol_hover, token_len, word_at};
+use crate::features::{
+    def_kind, field_at, fmt_hex, match_case, mnemonic_hover, severity_num, symbol_hover, token_len, word_at, DefKind,
+    Field, DIRECTIVES,
+};
 use crate::paths::{key, normalize};
 
 /// Wait this long after the last keystroke before re-assembling. A full
@@ -22,6 +27,9 @@ const DEBOUNCE: Duration = Duration::from_millis(400);
 
 const HINT_ALONE: &str = "Assembled on its own because no workspace file includes it. If it belongs to a larger \
 build, add that build's top-level file to the m68hc16.rootFiles setting.";
+
+/// Completion lists longer than this are cut (and marked incomplete).
+const MAX_COMPLETIONS: usize = 2000;
 
 /// Open documents' text (by path key), falling back to disk.
 #[derive(Clone, Default)]
@@ -126,6 +134,22 @@ impl Backend {
 
 fn uri_path(uri: &Url) -> Option<PathBuf> {
     uri.to_file_path().ok().map(|p| normalize(&p))
+}
+
+fn loc_to_lsp(l: &SourceLoc, len: usize) -> Option<Location> {
+    let uri = Url::from_file_path(normalize(l.file.as_deref()?)).ok()?;
+    let start = Position::new(l.line.saturating_sub(1), l.col.saturating_sub(1));
+    Some(Location::new(uri, Range::new(start, Position::new(start.line, start.character + len as u32))))
+}
+
+fn lsp_kind(k: DefKind) -> SymbolKind {
+    match k {
+        DefKind::Code => SymbolKind::FUNCTION,
+        DefKind::Data => SymbolKind::ARRAY,
+        DefKind::Storage => SymbolKind::VARIABLE,
+        DefKind::Constant => SymbolKind::CONSTANT,
+        DefKind::Macro => SymbolKind::MODULE,
+    }
 }
 
 fn root_files_from(v: &serde_json::Value) -> Option<Vec<String>> {
@@ -245,6 +269,18 @@ impl Inner {
         Some((a, w, start))
     }
 
+    /// The analysis whose root assembles `uri`.
+    fn analysis_for(&self, uri: &Url) -> Option<(Arc<Analysis>, PathBuf)> {
+        let path = uri_path(uri)?;
+        let st = self.state.lock().unwrap();
+        let rk = st.file_root.get(&key(&path))?;
+        Some((st.roots.get(rk)?.analysis.clone()?, path))
+    }
+
+    fn text(&self, path: &Path) -> Option<String> {
+        self.state.lock().unwrap().text_of(path)
+    }
+
     fn display_path(&self, p: &Path) -> String {
         let st = self.state.lock().unwrap();
         for f in &st.folders {
@@ -311,6 +347,13 @@ impl LanguageServer for Backend {
                 text_document_sync: Some(TextDocumentSyncCapability::Kind(TextDocumentSyncKind::FULL)),
                 hover_provider: Some(HoverProviderCapability::Simple(true)),
                 definition_provider: Some(OneOf::Left(true)),
+                references_provider: Some(OneOf::Left(true)),
+                document_symbol_provider: Some(OneOf::Left(true)),
+                workspace_symbol_provider: Some(OneOf::Left(true)),
+                completion_provider: Some(CompletionOptions {
+                    trigger_characters: Some(vec!["#".into(), ",".into()]),
+                    ..CompletionOptions::default()
+                }),
                 ..ServerCapabilities::default()
             },
             server_info: Some(ServerInfo { name: "m68hc16-lsp".into(), version: Some(env!("CARGO_PKG_VERSION").into()) }),
@@ -395,5 +438,157 @@ impl LanguageServer for Backend {
             contents: HoverContents::Markup(MarkupContent { kind: MarkupKind::Markdown, value: md }),
             range: Some(range),
         }))
+    }
+
+    async fn references(&self, p: ReferenceParams) -> Result<Option<Vec<Location>>> {
+        let tp = p.text_document_position;
+        let Some((a, w, _)) = self.0.lookup(&tp.text_document.uri, tp.position) else { return Ok(None) };
+        let Some(refs) = a.references.get(&w) else { return Ok(None) };
+        let def = a.symbol(&w).and_then(|s| s.def.as_ref());
+        let len = w.chars().count();
+        let locs = refs
+            .iter()
+            .filter(|l| p.context.include_declaration || Some(*l) != def)
+            .filter_map(|l| loc_to_lsp(l, len))
+            .collect();
+        Ok(Some(locs))
+    }
+
+    async fn completion(&self, p: CompletionParams) -> Result<Option<CompletionResponse>> {
+        let tp = p.text_document_position;
+        let Some(path) = uri_path(&tp.text_document.uri) else { return Ok(None) };
+        let Some(text) = self.0.text(&path) else { return Ok(None) };
+        let line = text.lines().nth(tp.position.line as usize).unwrap_or("");
+        let col = tp.position.character as usize;
+        let typed: String = {
+            let chars: Vec<char> = line.chars().take(col).collect();
+            let start = chars.iter().rposition(|c| !(c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '?')));
+            chars[start.map(|s| s + 1).unwrap_or(0)..].iter().collect()
+        };
+        let first = typed.chars().next().map(|c| c.to_ascii_lowercase());
+        let wanted = |name: &str| first.is_none_or(|f| name.chars().next().map(|c| c.to_ascii_lowercase()) == Some(f));
+        let analysis = self.0.analysis_for(&tp.text_document.uri).map(|(a, _)| a);
+        let mut items: Vec<CompletionItem> = Vec::new();
+        match field_at(line, col) {
+            Field::Op => {
+                for insn in INSTRUCTIONS.iter().filter(|i| wanted(i.mnemonic)) {
+                    items.push(CompletionItem {
+                        label: match_case(insn.mnemonic, &typed),
+                        kind: Some(CompletionItemKind::KEYWORD),
+                        detail: Some("CPU16 instruction".into()),
+                        documentation: mnemonic_hover(insn.mnemonic)
+                            .map(|m| Documentation::MarkupContent(MarkupContent { kind: MarkupKind::Markdown, value: m })),
+                        ..CompletionItem::default()
+                    });
+                }
+                for d in DIRECTIVES.iter().filter(|d| wanted(d)) {
+                    items.push(CompletionItem {
+                        label: match_case(d, &typed),
+                        kind: Some(CompletionItemKind::KEYWORD),
+                        detail: Some("directive".into()),
+                        ..CompletionItem::default()
+                    });
+                }
+                if let Some(a) = &analysis {
+                    for s in a.symbols.iter().filter(|s| s.kind == AsmKind::Macro && wanted(&s.name)) {
+                        items.push(CompletionItem {
+                            label: s.name.clone(),
+                            kind: Some(CompletionItemKind::FUNCTION),
+                            detail: Some("macro".into()),
+                            ..CompletionItem::default()
+                        });
+                    }
+                }
+            }
+            Field::Operand => {
+                let Some(a) = &analysis else { return Ok(None) };
+                for s in a.symbols.iter().filter(|s| s.kind != AsmKind::Macro && wanted(&s.name)) {
+                    let (kind, what) = match s.kind {
+                        AsmKind::Constant => (CompletionItemKind::CONSTANT, "constant"),
+                        _ => (CompletionItemKind::VARIABLE, "address"),
+                    };
+                    items.push(CompletionItem {
+                        label: s.name.clone(),
+                        kind: Some(kind),
+                        detail: Some(format!("{} {what}", s.value.map(fmt_hex).unwrap_or_default())),
+                        ..CompletionItem::default()
+                    });
+                }
+            }
+            Field::Label | Field::Comment => return Ok(None),
+        }
+        let incomplete = items.len() > MAX_COMPLETIONS;
+        items.truncate(MAX_COMPLETIONS);
+        Ok(Some(CompletionResponse::List(CompletionList { is_incomplete: incomplete, items })))
+    }
+
+    async fn document_symbol(&self, p: DocumentSymbolParams) -> Result<Option<DocumentSymbolResponse>> {
+        let Some((a, path)) = self.0.analysis_for(&p.text_document.uri) else { return Ok(None) };
+        let Some(text) = self.0.text(&path) else { return Ok(None) };
+        let lines: Vec<&str> = text.lines().collect();
+        let me = key(&path);
+        let mut syms: Vec<(u32, DocumentSymbol)> = a
+            .symbols
+            .iter()
+            .filter_map(|s| {
+                let d = s.def.as_ref()?;
+                if key(d.file.as_deref()?) != me {
+                    return None;
+                }
+                let line = d.line.saturating_sub(1);
+                let text = lines.get(line as usize).copied().unwrap_or("");
+                let start = Position::new(line, d.col.saturating_sub(1));
+                let sel = Range::new(start, Position::new(line, start.character + s.name.chars().count() as u32));
+                #[allow(deprecated)]
+                let sym = DocumentSymbol {
+                    name: s.name.clone(),
+                    detail: s.value.map(fmt_hex),
+                    kind: if s.kind == AsmKind::Macro { SymbolKind::MODULE } else { lsp_kind(def_kind(text)) },
+                    tags: None,
+                    deprecated: None,
+                    range: Range::new(Position::new(line, 0), Position::new(line, text.chars().count() as u32)),
+                    selection_range: sel,
+                    children: None,
+                };
+                Some((line, sym))
+            })
+            .collect();
+        syms.sort_by_key(|(l, _)| *l);
+        Ok(Some(DocumentSymbolResponse::Nested(syms.into_iter().map(|(_, s)| s).collect())))
+    }
+
+    async fn symbol(&self, p: WorkspaceSymbolParams) -> Result<Option<Vec<SymbolInformation>>> {
+        let q = p.query.to_ascii_lowercase();
+        let analyses: Vec<Arc<Analysis>> = {
+            let st = self.0.state.lock().unwrap();
+            st.roots.values().filter_map(|r| r.analysis.clone()).collect()
+        };
+        let mut seen = HashSet::new();
+        let mut out = Vec::new();
+        for a in analyses {
+            for s in &a.symbols {
+                if !s.name.to_ascii_lowercase().contains(&q) || !seen.insert(s.name.clone()) {
+                    continue;
+                }
+                let Some(loc) = s.def.as_ref().and_then(|d| loc_to_lsp(d, s.name.chars().count())) else { continue };
+                #[allow(deprecated)]
+                out.push(SymbolInformation {
+                    name: s.name.clone(),
+                    kind: match s.kind {
+                        AsmKind::Constant => SymbolKind::CONSTANT,
+                        AsmKind::Macro => SymbolKind::MODULE,
+                        AsmKind::Address => SymbolKind::FUNCTION,
+                    },
+                    tags: None,
+                    deprecated: None,
+                    location: loc,
+                    container_name: s.value.map(fmt_hex),
+                });
+                if out.len() >= 500 {
+                    return Ok(Some(out));
+                }
+            }
+        }
+        Ok(Some(out))
     }
 }
