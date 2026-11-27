@@ -39,6 +39,10 @@ pub struct Analysis {
     pub symbols: Vec<SymbolInfo>,
     /// The root and every file it pulled in, in first-include order.
     pub files: Vec<PathBuf>,
+    /// Every textual occurrence of each symbol in those files: labels that
+    /// define it, operands and macro calls that use it. Lines in false
+    /// conditional blocks and macro bodies count too, as an editor search would.
+    pub references: HashMap<String, Vec<SourceLoc>>,
 }
 
 impl Analysis {
@@ -104,7 +108,77 @@ pub fn analyze(root: &Path, loader: &dyn SourceLoader) -> Analysis {
     }
     symbols.sort_by(|a, b| a.name.cmp(&b.name));
 
-    Analysis { diagnostics: obj.diagnostics, symbols, files }
+    let names: HashSet<&str> = symbols.iter().map(|s| s.name.as_str()).collect();
+    let mut references: HashMap<String, Vec<SourceLoc>> = HashMap::new();
+    for f in &files {
+        let Ok(text) = loader.load(f) else { continue };
+        for (i, line) in text.lines().enumerate() {
+            for (name, col) in line_symbols(line) {
+                if names.contains(name) {
+                    references.entry(name.to_string()).or_default().push(SourceLoc {
+                        file: Some(f.clone()),
+                        line: (i + 1) as u32,
+                        col,
+                    });
+                }
+            }
+        }
+    }
+
+    Analysis { diagnostics: obj.diagnostics, symbols, files, references }
+}
+
+fn is_ident_start(c: char) -> bool {
+    c.is_ascii_alphabetic() || c == '_' || c == '.' || c == '?'
+}
+
+fn is_ident(c: char) -> bool {
+    c.is_ascii_alphanumeric() || c == '_' || c == '.' || c == '?'
+}
+
+/// Candidate symbol names on a source line with their 1-based columns: the
+/// label, the operation (a macro call), and identifiers in the operand. Skips
+/// comments, quoted strings, numbers (`$1F`, `%101`, `@17`, `10`) and
+/// built-in calls such as `PAGE(`.
+pub fn line_symbols(line: &str) -> Vec<(&str, u32)> {
+    let p = split_line(line);
+    let mut out = Vec::new();
+    for field in [p.label, p.op].into_iter().flatten() {
+        out.push((field, encoder::field_col(line, Some(field))));
+    }
+    let Some(operand) = p.operand else { return out };
+    let base = encoder::field_col(line, Some(operand)) - 1;
+    let chars: Vec<(usize, char)> = operand.char_indices().collect();
+    let mut i = 0;
+    while i < chars.len() {
+        let (off, c) = chars[i];
+        if c == '"' || c == '\'' {
+            i += 1;
+            while i < chars.len() && chars[i].1 != c {
+                i += 1;
+            }
+            i += 1;
+        } else if c.is_ascii_digit() || matches!(c, '$' | '%' | '@') {
+            i += 1;
+            while i < chars.len() && chars[i].1.is_ascii_alphanumeric() {
+                i += 1;
+            }
+        } else if is_ident_start(c) {
+            let start = i;
+            while i < chars.len() && is_ident(chars[i].1) {
+                i += 1;
+            }
+            let end = chars.get(i).map(|x| x.0).unwrap_or(operand.len());
+            let followed_by_paren = chars.get(i).is_some_and(|x| x.1 == '(');
+            if !followed_by_paren {
+                let col = base as u32 + operand[..off].chars().count() as u32 + 1;
+                out.push((&operand[chars[start].0..end], col));
+            }
+        } else {
+            i += 1;
+        }
+    }
+    out
 }
 
 /// First label definition of each name on a line MASM actually processed (a
