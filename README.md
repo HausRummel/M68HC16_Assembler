@@ -107,10 +107,14 @@ When **.BIN** is ticked, **Fill / Base / Size** hex fields appear (defaulting to
 ## Editor support
 
 [`editors/vscode`](editors/vscode) is a VS Code extension: syntax highlighting for the
-MASM dialect, CP437 file encoding, and a `$m68hc16` problem matcher so a Ctrl+Shift+B
-build puts errors on the right line of the right file. Diagnostics print as
-`file:line:col: error: message`, pointing into the original source, `INCLUDE`d files
-included, so other editors and CI log parsers can use them too.
+MASM dialect, CP437 file encoding, and a `$m68hc16` problem matcher for Ctrl+Shift+B
+builds. With [`crates/m68hc16-lsp`](crates/m68hc16-lsp), a Language Server Protocol
+server that runs this assembler in memory, it also gives live errors, go to definition
+and hover with symbol values. The server speaks standard LSP over stdio, so other
+editors can use it too.
+
+Diagnostics print as `file:line:col: error: message`, pointing into the original
+source, `INCLUDE`d files included.
 
 ## Repository layout
 
@@ -118,6 +122,7 @@ included, so other editors and CI log parsers can use them too.
 crates/m68hc16-asm       the assembler library (lexer, parser, encoder, output writers)
 crates/m68hc16-asm-cli   command-line front end
 crates/m68hc16-asm-gui   egui desktop front end
+crates/m68hc16-lsp       language server (LSP over stdio)
 editors/vscode           VS Code extension (grammar, problem matcher)
 docs/spec                ISA tables and encoding notes
 tools/oracle             golden-oracle harness used to validate output byte-for-byte

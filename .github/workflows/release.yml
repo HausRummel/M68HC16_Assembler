@@ -40,6 +40,7 @@ jobs:
           New-Item -ItemType Directory -Force dist | Out-Null
           Copy-Item target/release/m68hc16-asm.exe     "dist/m68hc16-asm-$ver-x86_64-windows.exe"
           Copy-Item target/release/m68hc16-asm-gui.exe "dist/m68hc16-asm-gui-$ver-x86_64-windows.exe"
+          Copy-Item target/release/m68hc16-lsp.exe     "dist/m68hc16-lsp-$ver-x86_64-windows.exe"
           Copy-Item THIRD-PARTY-LICENSES.html dist/
           Copy-Item LICENSE dist/LICENSE.txt
           Copy-Item NOTICE  dist/NOTICE.txt

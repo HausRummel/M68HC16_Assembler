@@ -130,6 +130,25 @@ pub fn assemble_source(src: &str) -> Object {
     assemble_source_in(src, None)
 }
 
+/// Where `INCLUDE`d sources come from. The assembler reads files from disk
+/// ([`FsLoader`]); an editor integration can serve the unsaved text of open
+/// buffers instead, falling back to disk for the rest.
+pub trait SourceLoader {
+    /// The text of `path`, decoded so each source byte is one `char`
+    /// (see [`decode_latin1`]).
+    fn load(&self, path: &Path) -> std::io::Result<String>;
+}
+
+/// Reads sources from the file system, decoding them as Latin-1.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct FsLoader;
+
+impl SourceLoader for FsLoader {
+    fn load(&self, path: &Path) -> std::io::Result<String> {
+        std::fs::read(path).map(|b| decode_latin1(&b))
+    }
+}
+
 /// Decode source bytes as Latin-1 (ISO-8859-1): each byte becomes the codepoint
 /// of the same value. DOS sources are codepage/Latin-1 text, not UTF-8; mapping
 /// byte-for-byte keeps every assembled token (all ASCII) identical while letting
@@ -162,18 +181,64 @@ enum Sizing<'a> {
 ///    ever recomputed from a drifting value, the layout converges immediately
 ///    instead of oscillating (the classic span-dependent-instruction problem).
 pub fn assemble_source_in(src: &str, base_dir: Option<&Path>) -> Object {
+    assemble_source_with(src, base_dir, &FsLoader)
+}
+
+/// [`assemble_source_in`], reading `INCLUDE`d files through `loader`.
+///
+/// Preprocessing problems (a missing `INCLUDE`, an unclosed `macro`) are
+/// reported but do not stop the run, so the rest of the source still gets its
+/// diagnostics. When an include failed, the "undefined symbol" errors it
+/// would cascade into are dropped and counted in a note instead.
+pub fn assemble_source_with(src: &str, base_dir: Option<&Path>, loader: &dyn SourceLoader) -> Object {
     let raw: Vec<String> = src.lines().map(str::to_string).collect();
-    let (lines, macro_names) = match preprocess(&raw, base_dir) {
-        Ok(l) => l,
-        Err(diags) => {
-            return Object { diagnostics: diags, ..Object::default() };
+    let pre = preprocess(&raw, base_dir, loader);
+    let list_lines = build_listing_lines(&raw, base_dir, loader);
+    let mut obj = assemble_expanded(pre.lines, pre.macro_names, list_lines);
+
+    let mut diags = pre.diagnostics;
+    if pre.include_failed {
+        let before = obj.diagnostics.len();
+        obj.diagnostics.retain(|d| !(d.is_error() && d.message.starts_with("undefined symbol")));
+        let hidden = before - obj.diagnostics.len();
+        if hidden > 0 {
+            obj.diagnostics.push(Diagnostic::note(format!(
+                "{hidden} undefined-symbol error(s) hidden because an INCLUDE failed; fix it to see them"
+            )));
         }
-    };
+    }
+    if pre.unclosed_macro {
+        let loc = unclosed_macro_loc(&obj.list_lines);
+        let d = Diagnostic::error("macro not closed with endm (closed at end of file)");
+        diags.push(match loc {
+            Some(l) => d.with_loc(l),
+            None => d,
+        });
+    }
+    diags.append(&mut obj.diagnostics);
+    obj.diagnostics = diags;
+    obj
+}
+
+/// Location of the `macro` line of a definition that never reached `endm`.
+fn unclosed_macro_loc(list_lines: &[ListLine]) -> Option<SourceLoc> {
+    let mut open: Option<&ListLine> = None;
+    for ll in list_lines {
+        match split_line(&ll.text).op.map(|o| o.to_ascii_lowercase()).as_deref() {
+            Some("macro") if open.is_none() => open = Some(ll),
+            Some("endm") => open = None,
+            _ => {}
+        }
+    }
+    open.map(|ll| SourceLoc { file: ll.file.clone(), line: ll.rel, col: field_col(&ll.text, split_line(&ll.text).op) })
+}
+
+/// Assemble the flat, include- and macro-expanded stream.
+fn assemble_expanded(lines: Vec<String>, macro_names: Vec<String>, list_lines: Vec<ListLine>) -> Object {
     // Provenance stream for the .LST body (additive; the assembly path below is
     // unchanged, so S19/OBJ stay byte-identical). Its `assembled` entries equal
     // `lines` position-for-position (verified on the full corpus), which is what
     // lets the body writer attach each line's emitted `Loc`/object code.
-    let list_lines = build_listing_lines(&raw, base_dir);
     // First definition line of each symbol (1-based, matching run_pass `lineno`).
     // Used during pass 1 to flag forward references on operands (e.g. bit ops)
     // whose evaluator masks undefined-ness behind a zero placeholder.
@@ -339,7 +404,7 @@ fn find_token(text: &str, name: &str) -> Option<usize> {
 }
 
 /// 1-based column of a field slice taken from `line` by [`split_line`].
-fn field_col(line: &str, field: Option<&str>) -> u32 {
+pub(crate) fn field_col(line: &str, field: Option<&str>) -> u32 {
     match field {
         Some(f) => {
             let off = (f.as_ptr() as usize).wrapping_sub(line.as_ptr() as usize);
@@ -721,18 +786,24 @@ fn needs_wide(expr: &str, cur_line: u32, def_line: &HashMap<String, usize>) -> b
 
 /// Expand `include` files and macros into a flat line list. These are textual
 /// transforms independent of assembly state, so they run once.
-fn preprocess(raw: &[String], base: Option<&Path>) -> Result<(Vec<String>, Vec<String>), Vec<Diagnostic>> {
+struct Preprocessed {
+    lines: Vec<String>,
+    macro_names: Vec<String>,
+    diagnostics: Vec<Diagnostic>,
+    /// Some `INCLUDE` could not be read (its symbols will look undefined).
+    include_failed: bool,
+    /// A `macro` ran to end of file without `endm` (closed there).
+    unclosed_macro: bool,
+}
+
+fn preprocess(raw: &[String], base: Option<&Path>, loader: &dyn SourceLoader) -> Preprocessed {
     let mut diags = Vec::new();
-    let included = expand_includes(raw, base, None, 0, &mut diags);
-    if !diags.is_empty() {
-        return Err(diags);
-    }
+    let included = expand_includes(raw, base, None, 0, loader, &mut diags);
+    let include_failed = !diags.is_empty();
     let mut macro_names = Vec::new();
-    let expanded = expand_macros(&included, &mut diags, &mut macro_names);
-    if !diags.is_empty() {
-        return Err(diags);
-    }
-    Ok((expanded, macro_names))
+    let mut unclosed_macro = false;
+    let lines = expand_macros(&included, &mut diags, &mut macro_names, &mut unclosed_macro);
+    Preprocessed { lines, macro_names, diagnostics: diags, include_failed, unclosed_macro }
 }
 
 fn expand_includes(
@@ -740,6 +811,7 @@ fn expand_includes(
     base: Option<&Path>,
     file: Option<&Path>,
     depth: u32,
+    loader: &dyn SourceLoader,
     diags: &mut Vec<Diagnostic>,
 ) -> Vec<String> {
     if depth > 32 {
@@ -760,10 +832,10 @@ fn expand_includes(
                 continue;
             };
             let path = base.map(|b| b.join(name)).unwrap_or_else(|| PathBuf::from(name));
-            match std::fs::read(&path) {
-                Ok(bytes) => {
-                    let sub: Vec<String> = decode_latin1(&bytes).lines().map(str::to_string).collect();
-                    out.extend(expand_includes(&sub, path.parent(), Some(&path), depth + 1, diags));
+            match loader.load(&path) {
+                Ok(text) => {
+                    let sub: Vec<String> = text.lines().map(str::to_string).collect();
+                    out.extend(expand_includes(&sub, path.parent(), Some(&path), depth + 1, loader, diags));
                 }
                 Err(e) => diags
                     .push(Diagnostic::error(format!("cannot include {}: {e}", path.display())).with_loc(loc)),
@@ -780,9 +852,9 @@ fn expand_includes(
 /// MASM prints: the `INCLUDE` directive (then its content at depth+1, rel reset)
 /// and the macro invocation (then its suppressed expansion). Macro definitions
 /// are dropped, as MASM does not list or count them.
-fn build_listing_lines(raw: &[String], base: Option<&Path>) -> Vec<ListLine> {
+fn build_listing_lines(raw: &[String], base: Option<&Path>, loader: &dyn SourceLoader) -> Vec<ListLine> {
     let mut inc = Vec::new();
-    list_expand_includes(raw, base, None, 0, &mut inc);
+    list_expand_includes(raw, base, None, 0, loader, &mut inc);
     let mut macros: HashMap<String, Vec<String>> = HashMap::new();
     let mut body: Vec<ListLine> = Vec::new();
     let mut current: Option<(String, Vec<String>)> = None;
@@ -809,6 +881,10 @@ fn build_listing_lines(raw: &[String], base: Option<&Path>) -> Vec<ListLine> {
             continue;
         }
         body.push(ll);
+    }
+    // A definition left open at end of file is closed there, as `expand_macros` does.
+    if let Some((name, lines)) = current.take() {
+        macros.insert(name, lines);
     }
     let mut out = Vec::new();
     list_expand_invocations(&body, &macros, 0, &mut out);
@@ -838,7 +914,14 @@ fn build_listing_lines(raw: &[String], base: Option<&Path>) -> Vec<ListLine> {
     out
 }
 
-fn list_expand_includes(lines: &[String], base: Option<&Path>, file: Option<&Path>, depth: u32, out: &mut Vec<ListLine>) {
+fn list_expand_includes(
+    lines: &[String],
+    base: Option<&Path>,
+    file: Option<&Path>,
+    depth: u32,
+    loader: &dyn SourceLoader,
+    out: &mut Vec<ListLine>,
+) {
     let file = file.map(Path::to_path_buf);
     if depth > 32 {
         return;
@@ -850,9 +933,9 @@ fn list_expand_includes(lines: &[String], base: Option<&Path>, file: Option<&Pat
             out.push(ListLine { text: line.clone(), file: file.clone(), rel, depth, listed: true, assembled: false });
             if let Some(name) = p.operand.map(|s| s.trim().trim_matches('"')) {
                 let path = base.map(|b| b.join(name)).unwrap_or_else(|| PathBuf::from(name));
-                if let Ok(bytes) = std::fs::read(&path) {
-                    let sub: Vec<String> = decode_latin1(&bytes).lines().map(str::to_string).collect();
-                    list_expand_includes(&sub, path.parent(), Some(&path), depth + 1, out);
+                if let Ok(text) = loader.load(&path) {
+                    let sub: Vec<String> = text.lines().map(str::to_string).collect();
+                    list_expand_includes(&sub, path.parent(), Some(&path), depth + 1, loader, out);
                 }
             }
         } else {
@@ -899,7 +982,12 @@ fn list_expand_invocations(
     }
 }
 
-fn expand_macros(lines: &[String], diags: &mut Vec<Diagnostic>, names: &mut Vec<String>) -> Vec<String> {
+fn expand_macros(
+    lines: &[String],
+    diags: &mut Vec<Diagnostic>,
+    names: &mut Vec<String>,
+    unclosed: &mut bool,
+) -> Vec<String> {
     // Collect `NAME: macro` … `endm` definitions, removing them from the stream.
     let mut macros: HashMap<String, Vec<String>> = HashMap::new();
     let mut body: Vec<String> = Vec::new();
@@ -927,8 +1015,12 @@ fn expand_macros(lines: &[String], diags: &mut Vec<Diagnostic>, names: &mut Vec<
         }
         body.push(line.clone());
     }
-    if current.is_some() {
-        diags.push(Diagnostic::error("macro not closed with endm"));
+    // Close a definition left open at end of file, so the invocations before
+    // it still expand; the caller reports it (with a location).
+    if let Some((name, lines)) = current.take() {
+        *unclosed = true;
+        names.push(name.clone());
+        macros.insert(name, lines);
     }
 
     expand_invocations(&body, &macros, diags, 0)

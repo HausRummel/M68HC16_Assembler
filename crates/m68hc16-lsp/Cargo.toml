@@ -1,0 +1,17 @@
+[package]
+name = "m68hc16-lsp"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Language server for M68HC16 (CPU16) assembly, built on the m68hc16-asm assembler"
+
+[[bin]]
+name = "m68hc16-lsp"
+path = "src/main.rs"
+
+[dependencies]
+m68hc16-asm.workspace = true
+tower-lsp = "0.20"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-std", "time", "sync"] }
+serde_json = "1"

@@ -4,6 +4,7 @@ members = [
     "crates/m68hc16-asm",
     "crates/m68hc16-asm-cli",
     "crates/m68hc16-asm-gui",
+    "crates/m68hc16-lsp",
 ]
 
 [workspace.package]
